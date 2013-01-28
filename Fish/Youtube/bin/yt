@@ -4,8 +4,15 @@ our $bin_dir;
 
 BEGIN {
     use File::Basename;
-    # fishtube/Fish/Youtube/bin
-    $bin_dir = -l $0 ? dirname readlink $0 : dirname $0;
+    my $d = dirname $0;
+    if (-l $0) {
+        my $l = dirname readlink $0;
+        $bin_dir = $l;
+        $bin_dir = "$d/$bin_dir" unless $l =~ m|^/|;
+    }
+    else {
+        $bin_dir = $d;
+    }
     push @INC, $bin_dir;
     push @INC, "$bin_dir/../../..";
 }

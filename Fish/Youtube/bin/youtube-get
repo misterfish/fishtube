@@ -2,10 +2,17 @@
 
 BEGIN {
     use File::Basename;
-    # fishtube/Fish/Youtube/bin
     my $d = dirname $0;
-    push @INC, $d;
-    push @INC, "$d/../../..";
+    if (-l $0) {
+        my $l = dirname readlink $0;
+        $bin_dir = $l;
+        $bin_dir = "$d/$bin_dir" unless $l =~ m|^/|;
+    }
+    else {
+        $bin_dir = $d;
+    }
+    push @INC, $bin_dir;
+    push @INC, "$bin_dir/../../..";
 }
 
 use threads;
