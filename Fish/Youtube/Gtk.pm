@@ -52,8 +52,7 @@ my $im;
 
 my $tree_data_magic;
 
-my $Script_dir = dirname $0;
-my $IMAGES_DIR = $Script_dir . '/../images';
+my $IMAGES_DIR = $main::bin_dir . '/../images';
 
 -d $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "doesn't exist.";
 -r $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "not readable";
@@ -1203,7 +1202,9 @@ sub movie_panic_while_waiting {
 
 sub movie_panic {
     my ($err_file, $mid) = @_;
-    my $err = read_file($err_file);
+    my $fh = safeopen $err_file;
+    local $/ = undef;
+    my $err = <$fh>;
     if ($err and $err =~ /\S/ and $err !~ /^\s*Terminated\s*$/s) {
         err "Can't get movie: $err";
     }

@@ -1,0 +1,3 @@
+#!/bin/bash
+
+egrep --color=always -ir "$@" Fish/Youtube/bin/* Fish/Youtube/*.pm | grep -v "\.swp" | grep -v "\.swo" | egrep --color=auto "$@"

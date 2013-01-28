@@ -1,0 +1,92 @@
+Best: PACKAGE-BASED INSTALL (package names given are Debian names)
+
+  Install:
+
+    libdbi-perl
+    libfile-slurp-perl
+    libgtk2-perl
+    libhttp-cookies-perl
+    libmoose-perl
+    libproc-processtable-perl
+    libproc-syncexec-perl
+    cpanminus
+
+  Then:
+
+    sudo cpanminus URI::Escape HTML::Entities LWP::UserAgent
+
+      or 
+
+    cpanminus URI::Escape HTML::Entities LWP::UserAgent
+
+
+
+MANUAL COMPILE / INSTALL, systemwide (needs root, not just sudo)
+
+  Install 'cpanm':
+    sudo su - 
+    wget -O- http://cpanmin.us | perl - App::cpanminus 
+
+  Install modules: (will take a long time)
+    sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent		
+
+  Errors can be examined by going to build dir and compiling, e.g.:
+  
+    cd /root/.cpanm/latest-build/DBI-1.623
+    perl Makefile.PL
+    make install
+
+MANUAL COMPILE / INSTALL, per-user (no sudo)
+
+  Hopefully and probably you already have libgtk2. To check, this might
+  work:
+    pkg-config --modversion gtk+-2.0
+
+  Otherwise installing it per-user is pretty tricky.
+
+  Install 'cpanm':
+    wget -O- http://cpanmin.us | perl - -l ~/perl5 App::cpanminus local::lib
+
+  Install modules: (will take a long time)
+    cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent		
+
+  Errors can be examined by going to e.g.  ~/.cpanm/latest-build/DBI-1.623 and typing 
+    perl Makefile.PL
+    make install
+
+TO RUN:
+
+  Fish/Youtube/bin/
+
+
+
+List of deps:
+
+  standard perl modules (can use corelist cmd from Module::CoreList)
+
+    Carp
+    Data::Dumper
+    File::Basename
+    File::stat
+    File::Temp
+    Getopt::Std
+    Math::Trig
+    POSIX
+    Term::ANSIColor
+    Time::HiRes
+
+perl module / debian package
+
+    DBI				libdbi-perl
+    File::Slurp			libfile-slurp-perl
+    Gtk2			libgtk2-perl
+    HTTP::Cookies 		libhttp-cookies-perl
+    Moose			libmoose-perl
+    Proc::ProcessTable		libproc-processtable-perl
+    Proc::SyncExec		libproc-syncexec-perl
+    
+perl modules without debian packages
+    
+    URI::Escape
+    HTML::Entities
+    LWP::UserAgent		

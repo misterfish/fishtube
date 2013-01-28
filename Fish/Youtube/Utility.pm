@@ -226,7 +226,7 @@ sub round {
 sub safeopen {
     (scalar @_ < 3) || error("safeopen() called incorrectly");
 
-    my $file = shift;
+    my $file = shift or error "Need file for safeopen()";
 
     my $die;
     my $is_dir;

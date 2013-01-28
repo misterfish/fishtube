@@ -2,12 +2,14 @@
 
 package main;
 
+our $bin_dir;
+
 BEGIN {
     use File::Basename;
     # Fish/Youtube/bin/
-    my $d = dirname $0;
-    push @INC, $d;
-    push @INC, "$d/../../..";
+    $bin_dir = -l $0 ? dirname readlink $0 : dirname $0;
+    push @INC, $bin_dir;
+    push @INC, "$bin_dir/../../..";
 }
 
 use 5.10.0;
@@ -217,7 +219,7 @@ sub start_download {
     my $err_file = "$tmp/yt-err";
     # anything on out is an err
     # quiet, no terminal (i.e. disable colors)
-    my $cmd = qq, youtube-get 2>"$err_file" -q -T -t "$tmp" $o "$url ",;
+    my $cmd = qq, $main::bin_dir/youtube-get 2>"$err_file" -q -T -t "$tmp" $o "$url ",;
     D2 'cmd', $cmd;
 
     my ($pid) = sync_exec $cmd;
