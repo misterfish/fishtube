@@ -1,4 +1,9 @@
+First, you need perl > 5.10.0. (Check with perl -v). You can do it via the
+package manager. If you don't have a package manager or don't have sudo, you
+have to build perl yourself, which is too complicated to describe here.
+
 PACKAGE-BASED INSTALL (best)
+---------------------
 
   Install: (package names given are Debian names)
 
@@ -19,9 +24,8 @@ PACKAGE-BASED INSTALL (best)
 
     cpanminus URI::Escape HTML::Entities LWP::UserAgent
 
-
-
 MANUAL COMPILE / INSTALL, systemwide
+------------------------
 
   Install 'cpanm':
     sudo wget -O- http://cpanmin.us | sudo perl - App::cpanminus 
@@ -37,6 +41,7 @@ MANUAL COMPILE / INSTALL, systemwide
     make install
 
 MANUAL COMPILE / INSTALL, per-user (no sudo)
+------------------------
 
   Hopefully and probably you already have libgtk2. To check, this might
   work:
@@ -56,7 +61,7 @@ MANUAL COMPILE / INSTALL, per-user (no sudo)
 
 TO RUN:
 
-  Fish/Youtube/bin/
+  Fish/Youtube/bin/fishtube
 
 
 
