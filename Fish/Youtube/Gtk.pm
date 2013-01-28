@@ -31,6 +31,9 @@ use Math::Trig ':pi';
 
 #%
 
+# make up a unique id
+use constant STATUS_OD => 100;
+
 use File::Slurp;
 
 sub timeout;
@@ -80,6 +83,9 @@ my $HP = 100;
 my $RIGHT_SPACING_H_1 = 10;
 my $RIGHT_SPACING_H_2 = 10;
 my $RIGHT_PADDING_TOP = 20;
+
+# start watching when this perc downloaded.
+my $AUTO_WATCH_PERC = 10;
 
 my $RIGHT_SPACING_V = 15;
 
@@ -132,6 +138,11 @@ my %info_box;
 my %cancel_images;
 
 #^
+
+my %auto_launched;
+
+my $OUTPUT_DIR_TXT = "Output dir:";
+
 my $last_mid_in_statusbar;
 my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
 
@@ -176,6 +187,7 @@ sub init {
     $w->modify_bg('normal', $white);
 
     $w->signal_connect('configure_event', \&configure_main );
+    $w->signal_connect('destroy', sub { $w->destroy; exit 0 } );
 
     my $l = Gtk2::VBox->new;
     
@@ -237,7 +249,6 @@ sub init {
     set_cursor_timeout($status_bar_dir_box, 'hand2');
 
     $status_bar_dir_box->signal_connect('button-press-event', sub {
-            D 'hi';
         do_output_dir_dialog();
     });
 
@@ -257,6 +268,9 @@ sub init {
 
     $status_bar->set_size_request($Width * .7, -1);
     $status_bar_dir->set_size_request($Width * .3, -1);
+
+    set_label($status_bar_dir, "$OUTPUT_DIR_TXT", { size => 'small', color
+=> 'red'});
 
     $_->set_has_resize_grip(0) for $status_bar;
     #$status_box->pack_start($status_bar, 1, 1, 10);
@@ -340,9 +354,10 @@ sub init {
             main::set_profile_dir($pd);
         };
     }
-    if ($od_ask) {
-        push @init_chain, \&do_output_dir_dialog;
-    }
+
+#    if ($od_ask) {
+#        push @init_chain, \&do_output_dir_dialog;
+#    }
 
     push @init_chain, sub { $inited = 1 };
 
@@ -464,6 +479,15 @@ sub get_color {
 
 sub row_activated {
     my ($obj, $path, $column) = @_;
+
+    if (! $output_dir) {
+        # remove_all doesn't seem to work.
+        $status_bar->pop(STATUS_OD);
+        $status_bar->push(STATUS_OD, 'Choose output dir first.');
+        return;
+    }
+
+
     my $row_idx = $path->get_indices;
     my $d = $movie_data[$row_idx] or die;
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
@@ -478,6 +502,8 @@ sub start_download {
     return if $D->exists($mid);
     
     $download_successful{$mid} = 0;
+    $auto_launched{$mid} = 0;
+
     my $box;
 
     my $tmp = main::get_tmp_dir();
@@ -577,15 +603,6 @@ sub start_download {
 
         $i++ > 20 and error "youtube-get behaving strange.";
 
-        if (! main::process_running($pid)) {
-            # child proc died before we could get the metadata.
-            war "Child died", Y $pid;
-
-            movie_panic_while_waiting($err_file, $mid);
-
-            return 0;
-        }
-
         my ($s, $code) = sys qq, cat 2>/dev/null "$tmp/.yt-file",, 0;
         
         if ($s =~ /(.+)\n(\d+)/) {
@@ -618,6 +635,15 @@ sub start_download {
             return 0;
         }
 
+        if (! main::process_running($pid)) {
+            # child proc died before we could get the metadata.
+            war "Child died", Y $pid;
+
+            movie_panic_while_waiting($err_file, $mid);
+
+            return 0;
+        }
+
         # keep waiting
         return 1;
     });
@@ -640,6 +666,13 @@ sub file_progress {
 
     my $cur_size = $s->size;
     $d->prog($cur_size);
+
+    if (!$auto_launched{$mid}) {
+        if ($cur_size / $size * 100 > $AUTO_WATCH_PERC) {
+            $auto_launched{$mid} = 1;
+            main::watch_movie($file);
+        }
+    }
 
     D2 'cur_size', $cur_size;
 
@@ -1011,9 +1044,25 @@ sub cancel_download {
 sub set_label {
     my ($label, $text, $opt) = @_;
     my $size = $opt->{size} // '';
-    my $s1 = $size ? qq|<span size="$size">|  : '';
-    my $s2 = $s1 ? '</span>' : '';
-    my ($al, $txt, $accel_char) = Pango->parse_markup($s1 . $text . $s2);
+    my $color = $opt->{color} // '';
+
+    my $s1 = '';
+    my $s2 = '';
+
+    my $ss = $size ? qq|size="$size"|  : '';
+    my $sc = $color ? qq|color="$color"| : '';
+    my @s = ($ss, $sc);
+
+    $s1 = "<span " . join ' ', @s if @s;
+    $s1 .= ">" if $s1;
+
+    $s2 = '</span>' if $s1;
+
+    my $markup = $s1 . $text . $s2;
+
+#D 'markup', $markup;
+
+    my ($al, $txt, $accel_char) = Pango->parse_markup($markup);
     $label->set_attributes($al);
     $label->set_label($text);
 }
@@ -1263,6 +1312,9 @@ sub do_output_dir_dialog {
         $od = $o if main::check_output_dir($o);
     }
     set_output_dir($od);
+    # doesn't work
+    #$status_bar->remove_all(STATUS_OD);
+    $status_bar->pop(STATUS_OD);
 }
 
 sub set_output_dir {
@@ -1273,8 +1325,7 @@ sub set_output_dir {
     timeout(100, sub {
             #Gtk2::Gdk::Threads->enter;
         $status_bar_dir or return 1;
-        #$status_bar_dir->push(0, "Output dir: " . $output_dir);
-        set_label($status_bar_dir, "Output dir: $output_dir", { size => 'small' });
+        set_label($status_bar_dir, "$OUTPUT_DIR_TXT $output_dir", { size => 'small' });
         #Gtk2::Gdk::Threads->leave;
         0;
     });
