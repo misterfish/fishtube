@@ -1,0 +1,283 @@
+#!/usr/bin/perl
+
+BEGIN {
+    use File::Basename;
+    # fishtube/Fish/Youtube/bin
+    my $d = dirname $0;
+    push @INC, $d;
+    push @INC, "$d/../../..";
+}
+
+use warnings;
+use strict;
+
+use Proc::SyncExec (qw/ sync_exec sync_popen_noshell /);
+use Proc::ProcessTable;
+
+use Time::HiRes 'sleep';
+use File::stat;
+
+use Getopt::Std;
+use Fish::Youtube::Utility;
+sub _ { return RESET }
+
+sub error;
+
+my $DIR = '/tmp';
+my $PID_FILE = '/tmp/.yt-pid';
+my $FILENAME_FILE = '/tmp/.yt-file';
+my $DEFAULT_SIZE = 'medium';
+
+my $NUM_BYTES_BEFORE_PLAY = 1e6;
+
+my $LOG_FILE_O = '/tmp/yt-log-out';
+my $LOG_FILE_E = '/tmp/yt-log-err';
+
+$Fish::Youtube::Utility::LOG_LEVEL = 1;
+
+use 5.10.0;
+
+my %opts;
+getopts('khg:n:u:atfl', \%opts);
+
+$DIR = '/stuff' if sys ('hostname') ~~ ["carajo\n", "boldog\n"];
+
+my $USAGE = "Usage: $0 -k | [-a | -t | -f | -u url] [-l (to log)] [-g gain] [-n num=1]\n";
+
+my $Child_pid;
+my $Out_file;
+
+my $Yg = sys qq, which youtube-get ,;
+chomp $Yg;
+
+$opts{h} and die $USAGE;
+
+shift and die $USAGE;
+
+if ($opts{l}) {
+    open STDOUT, ">>$LOG_FILE_O" or die $!;
+    open STDERR, ">>$LOG_FILE_E" or die $!;
+}
+
+if (delete $opts{k}) {
+    keys %opts and die "-k must be alone.\n";
+    if (-e $PID_FILE) {
+        open my $fh, $PID_FILE or die "Can't open $PID_FILE: $!";
+        while (<$fh>) {
+            chomp;
+            sys "kill $_", 0;
+        }
+        sys qq. rm "$PID_FILE" .;
+    }
+    exit 0;
+}
+
+$opts{g} //= '';
+my $num = $opts{n} // 1;
+$num or die "-n can't be 0.\n";
+
+if ($opts{u}) {
+    $opts{f} and die $USAGE;
+    $opts{t} and die $USAGE;
+    $opts{a} and die $USAGE;
+    # call youtube-get and return name
+    # doesn't play though ??
+    $Out_file = get_movie($opts{u});
+}
+elsif ($opts{a}) {
+    $opts{f} and die $USAGE;
+    $opts{t} and die $USAGE;
+    $opts{u} and die $USAGE;
+    $Out_file = get_movie_from_temp() || get_movie_from_fd();
+} 
+elsif ($opts{f}) {
+    $opts{a} and die $USAGE;
+    $opts{t} and die $USAGE;
+    $opts{u} and die $USAGE;
+
+$Out_file = get_movie_from_fd();
+    #D 'out_file', $Out_file;
+    exit 0;
+}
+elsif ($opts{t}) {
+    $opts{a} and die $USAGE;
+    $opts{f} and die $USAGE;
+    $opts{u} and die $USAGE;
+    $Out_file = get_movie_from_temp();
+    D 'out_file', $Out_file;
+}
+else {
+    # call youtube-get and return name
+    $Out_file = get_movie_from_browser_history();
+}
+
+if ($num == 1) {
+    $Out_file or error "Couldn't get file.\n";
+    my $i = 0;
+    while ((stat $Out_file)->size < $NUM_BYTES_BEFORE_PLAY) {
+        $i++ > 50 and error "Timed out waiting for file to grow.\n";
+        sleep .5;
+    }
+    sys sprintf(qq. mp 2>&1 %s "%s" ., $opts{g}, $Out_file);
+}
+else {
+    say "-n used and not 1, not showing.";
+}
+
+exit 0;
+
+sub get_movie_from_temp {
+    my $file;
+    chomp ($file=`ls /tmp/Flash* -tr1 | tail -n $num | head -n 1`);
+    return $file;
+}
+
+sub get_movie_from_fd {
+    my $p = sys qq. ps auxw | grep plugin-container | grep libflashplayer | grep xul | grep -v grep | awk '{ print \$2 }' .;
+    chomp $p;
+    $p or return;
+    my $s = sys qq. ls -l /proc/$p/fd/* | grep deleted ., 0;
+    #$s =~ s|(/.+?\s)| sprintf "%s%s%s", G, $1, _ |eg;
+
+    # throw the last one into xclip
+    while ($s =~ s| (\S+) ( \s -> \s )(/tmp/Flash\S+)| Y($1) . $2 . BR($3) |xeg) {
+        my $fh = safeopen '|xclip';
+        print $fh $1;
+        close $fh;
+    }
+
+    chomp $s;
+
+    say $s;
+
+    $s = sys qq. lsof | grep plugin-co | grep deleted ., 0;
+    chomp $s;
+    $s =~ s| (/tmp/Flash\S+)| BR($1) |xeg;
+    say $s;
+
+    return undef;
+}
+
+sub get_movie_from_browser_history {
+    my $cmd = qq, find $ENV{HOME}/.mozilla/firefox -maxdepth 1 -type d | tail -n 1 ,;
+    my $dir = sys $cmd;
+    chomp $dir;
+    $dir or error;
+    my $file = "$dir/places.sqlite";
+D2 'file', $file;
+    -f $file or error "no file: $file";
+    my $sql = qq, select url from moz_places where (url like '%youtube.com%'
+        or url like '%youtu.be%') and url not like '%youtube.com/results%' order by moz_places.last_visit_date desc limit $num , ;
+    $cmd = qq, sqlite3 "$file" "$sql", ;
+    my $res = sys $cmd;
+    my $url = (split /\n/, $res)[-1];
+
+    return get_movie($url);
+}
+
+sub get_movie {
+    my ($url) = @_;
+
+    chdir $DIR or error qq. can't chdir to "$DIR" .;
+    my $ps = sys "ps -eo pid,cmd";
+    my $movie_file;
+    my $get = 1;
+
+=head
+    if ( ($Child_pid) = $ps =~ /^\s*(\d+).*youtube-get.+\Q$url\E/m ) {
+D2 'pid', $Child_pid;
+        my $file = "$FILENAME_FILE-$Child_pid";
+        my $fh = safeopen $file;
+        local $/ = "\n";
+        chomp($movie_file = <$fh>);
+        if ( -e $movie_file) {
+            # This 'only showing' thing works when the dl is still in
+            # progress but not when it finished.
+            warn D_QUIET "Not getting, just showing ", $movie_file;
+            $get = 0;
+        }
+        else {
+            warn "Killing old youtube-get ($Child_pid)";
+            sys "kill $Child_pid";
+        }
+    } 
+=cut
+
+        # put perl in cmdline so there's no extra process.
+        # doesn't do what i thought.
+        my $cmd = qq, "$Yg" -s $DEFAULT_SIZE -k "$url" , ;
+D 'cmd', $cmd;
+        my ($pid) = sync_exec $cmd;
+
+        my $i = 0;
+        while (! $Child_pid) {
+            $i++ > 15 and error "Can't get pid of child process.\n";
+
+            $Child_pid = get_proc_with_ppid($pid, $Yg);
+            sleep .5;
+        }
+
+D 'pid', $Child_pid;
+        my $file = $FILENAME_FILE . "-$Child_pid";
+D 'ff', $file;
+        my $ok = 0;
+        for (1..10) {
+            if (! sys_ok "ps $Child_pid") {
+                error "Child", Y $Child_pid, 'died';
+            }
+            if (-e $file) {
+                my $fh = safeopen $file;
+                # youtube-get makes an empty output file if it dies.
+                if (defined ($movie_file = <$fh>)) {
+                    $ok = 1;
+                    last;
+                }
+            }
+            sleep 1;
+        }
+        $ok or error "Timed out waiting for file $file";
+
+
+D2 'movie_file', $movie_file;
+    my $fh_pid = safeopen ">$PID_FILE";
+    say $fh_pid $Child_pid;
+
+    return $movie_file;
+}
+
+sub error {
+    if ($Child_pid) {
+        warn "Killing child.\n";
+        if (! sys_return_code("ps $Child_pid")) {
+            sys "kill $Child_pid", 0, 0;
+            $? and warn "Couldn't kill: $!";
+        }
+    }
+    if ($Out_file) {
+        if (-e $Out_file) {
+            warn "Removing output file.\n";
+            sys "rm '$Out_file'";
+        }
+    }
+    die join ' ', @_, "\n";
+}
+
+
+sub war {
+    my @s = @_;
+    warn join ' ', @s, "\n";
+}
+
+sub get_proc_with_ppid {
+
+    my ($ppid, $cmd_str) = @_;
+    my $t = new Proc::ProcessTable;
+    my @children = grep { 
+        $_->{ppid} == $ppid and
+        $_->{cmndline} =~ /$cmd_str/
+    } @{$t->table};
+
+    @children > 1 and war D_QUIET "More than one proc matches", 'ppid', $ppid, 'str', $cmd_str;
+
+    return @children ? (shift @children)->pid : undef;
+}

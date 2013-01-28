@@ -1,0 +1,297 @@
+#!/usr/bin/perl
+
+package main;
+
+BEGIN {
+    use File::Basename;
+    # Fish/Youtube/bin/
+    my $d = dirname $0;
+    push @INC, $d;
+    push @INC, "$d/../../..";
+}
+
+use 5.10.0;
+
+use strict;
+use warnings;
+
+use threads;
+use threads::shared;
+
+use Gtk2;
+
+use Time::HiRes 'sleep';
+
+use POSIX 'WNOHANG';
+use Proc::SyncExec qw/ sync_exec sync_popen_noshell /;
+use Proc::ProcessTable;
+
+use Getopt::Std;
+use File::Temp;
+
+use Fish::Youtube::Utility;
+use Fish::Youtube::Gtk;
+use Fish::Youtube::History;
+
+sub error;
+sub war;
+
+#%
+
+my $TMP = '/tmp';
+
+my $MOVIE_PLAYER = 'mplayer';
+my $MOVIE_PLAYER_OPTS = '';
+
+our ($opt_h, $opt_p, $opt_d, $opt_o);
+getopts('hp:do:');
+
+$opt_d and $Fish::Youtube::Utility::LOG_LEVEL++;
+
+$| = 1;
+
+my $USAGE = "Usage: $0 [-p firefox-profile] [-d to debug] [-o output_dir]";
+
+$opt_h and error $USAGE;
+
+my $Profile_dir;
+my $Output_dir;
+
+my $g = 'Fish::Youtube::Gtk';
+
+my $profile_ask;
+{
+    my %profiles = get_profiles();
+    if ($opt_p) {
+        my $p = $profiles{$opt_p} or error "No profile named", Y $opt_p;
+        set_profile_dir($p);
+    }
+    else {
+        my @v = values %profiles;
+        if (@v == 1) {
+            set_profile_dir(shift @v);
+        }
+        else {
+            $profile_ask = \%profiles;
+        }
+    }
+}
+
+my $output_dir_ask;
+if ($opt_o) {
+    check_output_dir($opt_o);
+    set_output_dir($opt_o);
+}
+else {
+    $output_dir_ask = 1;
+}
+
+sub get_profiles {
+
+    my %profiles;
+
+    my $h = $ENV{HOME} or error "HOME env variable not set and no profile dir given.";
+    my $d = "$ENV{HOME}/.mozilla/firefox";
+    -d $d or error "Dir", Y $d, "doesn't exist and no profile dir given.";
+    -r $d or error "Dir", Y $d, "not readable and no profile dir given.";
+    my $f = "$d/profiles.ini";
+    -e $f or error "File", Y $f, "doesn't exist and no profile dir given.";
+    -r $f or error "File", Y $f, "not readable and no profile dir given.";
+
+    #[General]
+    #StartWithLastProfile=1
+    #
+    #[Profile0]
+    #Name=default
+    #IsRelative=1
+    #Path=qrnjdznh.default
+    #Default=1
+    #
+    #[Profile1]
+    #Name=blah
+    #IsRelative=1
+    #Path=xdrjtfpq.blah
+    #
+    #[Profile2]
+    #Name=blah2
+    #IsRelative=0
+    #Path=/tmp
+
+    my $fh = safeopen $f;
+    my $in = 0;
+    my @cur;
+    my $first = 1;
+
+    local $/ = undef;
+    my $ini = <$fh>;
+
+    my @s = split / ^ ( \[ Profile \d+ \] ) $/mx, $ini;
+    shift @s;
+    my $i = -1;
+    my $p;
+    for (@s) {
+        # header
+        if (not ++$i % 2) {
+            $p = $_;
+        }
+        # body
+        else {
+            my ($name) = /Name=(.+)/;
+            my ($path) = /Path=(.+)/;
+            $name or error "Couldn't get name for profile", Y $p;
+            $path or error "Couldn't get dir for profile", Y $p;
+            $profiles{$name} = "$d/$path";
+        }
+    }
+
+    return %profiles;
+}
+
+sub set_profile_dir {
+    my ($pd) = @_;
+    $Profile_dir = $pd;
+}
+
+timeout( 1000, sub { poll_movies() } );
+
+# Output_dir can be undef
+$g->init($Output_dir, { profile_ask => $profile_ask });
+
+exit;
+
+# # #
+
+sub poll_movies {
+    $Profile_dir or return 1;
+
+    my $hist = Fish::Youtube::History->new(
+        num_movies => 15,
+        # can be undef
+        profile_dir => $Profile_dir,
+    );
+
+    $hist->update;
+    my $m = $hist->movies;
+
+    # no undefined element
+    if (@$m and not grep { not defined } @$m) {
+        $g->set_buf($m);
+    }
+
+    return 1;
+}
+
+sub error {
+    my @s = @_;
+    my $e = join ' ', @s, "\n";
+    if (Fish::Youtube::Gtk->inited) {
+        Fish::Youtube::Gtk::err($e);
+    }
+    else {
+        die $e;
+    }
+}
+
+sub war {
+    my @s = @_;
+    warn join ' ', @s, "\n";
+}
+
+
+sub get_tmp_dir {
+    return File::Temp->newdir( 'fishtubeXXXX', DIR => $TMP, CLEANUP => 0 );
+}
+
+sub start_download {
+
+    my $mid = shift // die;
+    my $url = shift or die;
+    # can be undef -- let youtube get make the of
+    my $of = shift;
+    my $tmp = shift or die;
+    my $output_dir = shift or die;
+
+    # bg start
+    my $o = $of ? qq| -o "$of"| : "-d '$output_dir'";
+
+    my $err_file = "$tmp/yt-err";
+    # anything on out is an err
+    # quiet, no terminal (i.e. disable colors)
+    my $cmd = qq, youtube-get 2>"$err_file" -q -T -t "$tmp" $o "$url ",;
+    D2 'cmd', $cmd;
+
+    my ($pid) = sync_exec $cmd;
+    #my ($pid, $fh) = sync_popen_noshell 'r', $cmd;
+    if ($pid) {
+
+        my $t = new Proc::ProcessTable;
+        my @children = grep { 
+            $_->{ppid} == $pid and
+            $_->{cmndline} =~ /youtube-get/
+        } @{$t->table};
+
+        # already died
+        if (! @children) {
+            return undef;
+        }
+        # weird
+        elsif ( @children > 1 ) {
+            die;
+        }
+        else {
+            return ((shift @children)->pid, $err_file);
+        }
+    }
+    else {
+        my @o = ($url);
+        push @o, $of if $of;
+        D R "Couldn't get movie", @o;
+        return;
+    }
+}
+
+sub process_running {
+    my ($pid) = @_;
+    my $t = Proc::ProcessTable->new->table;
+    my @children = grep { 
+        $_->{pid} == $pid 
+    } @$t;
+    return @children ? 1 : 0;
+}
+
+sub timeout {
+    my ($time, $sub) = @_;
+    Glib::Timeout->add($time, $sub );
+}
+
+sub watch_movie {
+    my ($file) = @_;
+    if ( ! -e $file ) {
+        $g->err("File '$file' doesn't exist, can't watch.");
+        return;
+    }
+    if ( ! sys_ok qq, which $MOVIE_PLAYER , ) {
+        $g->err("Movie player '$MOVIE_PLAYER' doesn't exist.");
+        return;
+    }
+
+    my $o = $MOVIE_PLAYER_OPTS // '';
+    my $pid = sync_exec qq, $MOVIE_PLAYER $o "$file" ,;
+}
+
+sub set_output_dir {
+    my ($od) = @_;
+    $Output_dir = $od or die;
+    #D $od;
+}
+
+sub check_output_dir {
+    my ($od) = @_;
+    my $ok = 1;
+    $ok = 0, error "Output dir", Y $od, "doesn't exist" unless -d $od;
+    $ok = 0, error "Output dir", Y $od, "not writeable" unless -w $od;
+
+    # error won't die if gui already up
+    return $ok;
+}
+

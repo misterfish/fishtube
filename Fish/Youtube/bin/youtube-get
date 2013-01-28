@@ -1,0 +1,350 @@
+#!/usr/bin/perl
+
+BEGIN {
+    use File::Basename;
+    # fishtube/Fish/Youtube/bin
+    my $d = dirname $0;
+    push @INC, $d;
+    push @INC, "$d/../../..";
+}
+
+use threads;
+use threads::shared;
+
+use Term::ANSIColor;
+use Data::Dumper 'Dumper';
+
+select STDERR; $| = 1;
+select STDOUT; $| = 1;
+
+use Time::HiRes 'sleep';
+
+use POSIX ':sys_wait_h';
+
+use strict;
+use warnings;
+
+use 5.10.0;
+
+sub error;
+sub war;
+
+use LWP::UserAgent;
+use URI::Escape qw/ uri_unescape uri_escape /;
+use Getopt::Std;
+use HTML::Entities qw/ decode_entities encode_entities /;
+use File::Temp ();
+
+use File::stat;
+
+use Fish::Youtube::Utility;
+
+my $Ok = 1;
+
+sub _exit {
+    $Ok = 0;
+    exit(@_);
+}
+
+$SIG{INT} = $SIG{KILL} = sub { _exit 1 };
+
+my $DEFAULT_TMP = '/tmp';
+
+my $Content_length :shared = undef;
+my $Outfile_size :shared = 0;
+my $Yt_file :shared;
+
+my $USAGE = "$0 [-v] [-q quiet] [-t tmpdir] [-k (to put a pid suffix on the filename in /tmp/)] [-f to force] [-o output-file] [-d dir, ignored if -o is abs] [-s small/medium/large/hd720/hd1080] [-T if not terminal] youtube-url ";
+
+our $opt_T;
+our $opt_d;
+our $opt_o;
+our $opt_f;
+our $opt_k;
+our $opt_v;
+our $opt_s;
+our $opt_t;
+our $opt_q;
+
+getopts('s:fo:kvt:qd:T');
+
+disable_colors() if $opt_T;
+
+my $Tmp = $opt_t // $DEFAULT_TMP;
+my $YT_FILE = "$Tmp/.yt-file";
+
+my $Url = shift or die "$USAGE\n";
+
+$Fish::Youtube::Utility::VERBOSE = $opt_v // 0;
+$Fish::Youtube::Utility::LOG_LEVEL = 1;
+
+my $Out_file;
+
+my $ua = LWP::UserAgent->new;
+
+$ua->agent('Mozilla/5.0 (X11; Linux i686; rv:10.0.5) Gecko/20100101 Firefox/10.0.5 Iceweasel/10.0.5');
+#D 'agent ', $ua->agent;
+
+use HTTP::Cookies;
+my $cookie_jar = HTTP::Cookies->new(
+    file     => "$Tmp/yt-cook.txt",
+    autosave => 1,
+);
+$ua->cookie_jar( $cookie_jar );
+
+# hang forever
+$ua->timeout(0);
+
+$Yt_file = $YT_FILE;
+$opt_k and $Yt_file .= "-$$";
+
+$opt_q or D 'url', $Url;
+
+my $res = $ua->get($Url);
+
+$res->is_success or die $res->status_line ;
+
+# can be partial content ... apparently still timing out sometimes?
+
+#error 'whatever';
+
+my $c = $res->decoded_content;
+
+$Out_file = $opt_o;
+if ( ! $Out_file ) {
+    my $title = ($c =~ m|<title>(.+?)</title>|si)[0];
+    $title =~ s/ *-\s*youtube\s*$//gi;
+
+    $title =~ s/^\s+//;
+    $title =~ s/\s+$//;
+
+    $title = decode_entities $title;
+
+    $title =~ s/[\n:!\*<>\`\$]//g;
+
+    $title =~ s|/ |-|gx;
+    $title =~ s|\\|-|g;
+    $title =~ s/"/'/g;
+
+    $opt_q or D 'title', $title;
+
+    $Out_file = $title . ".flv";
+}
+
+if ($Out_file !~ /^\// and $opt_d) {
+    $Out_file = "$opt_d/$Out_file";
+}
+
+async { metadata_file() }->detach;
+
+#$opt_k and $file .= "-$opt_k";
+$opt_q or D 'pid yg', $$;
+$opt_q or D 'out file', $Out_file;
+
+my $outfile_exists = ( ! $opt_f and -e $Out_file );
+
+if ( $outfile_exists ) {
+    my $o = $Out_file;
+    my $pwd = sys_chomp 'pwd';
+    if ($o !~ /^\//) {
+        $o = "$pwd/$o";
+    }
+    utf8::encode($o);
+    error Y $o, "exists, exiting.";
+}
+sys qq. touch "$Out_file" ., 1;
+
+my @urls;
+my $url;
+
+my (@u_mp4, @u_flv);
+
+# copied from flash downloader extension
+$c =~ /"url_encoded_fmt_stream_map": "([^"]*)"/;
+my $_u = $1 or error "Couldn't find url_encoded_fmt_stream_map in", $c;
+my @u = split /,/, $_u;
+for my $u (@u) {
+    $u = uri_unescape $u;
+D2 'u', $u;
+    if ($u =~ / itag= /x) {
+        my %data;
+        my @fields = split /\\u0026/, $u;
+        for (@fields) {
+            /^(.+?)=(.+)$/ or next;
+            $data{$1} = $2;
+        }
+
+        for (qw/ url itag type fallback_host sig quality / ) {
+            $data{$_} or warn "Couldn't find ", G $_, " in u: ", $u;
+        }
+
+        $data{url} .= "&signature=$data{sig}";
+        ($data{type} =~ /mp4/) ? push @u_mp4, [$data{url}, $data{quality}] : 
+        ($data{type} =~ /flv/) ? push @u_flv, [$data{url}, $data{quality}] :
+
+D2 'type', $data{type};
+D2 'qual', $data{quality};
+        # check here later for more formats.
+        next;
+    }
+    #elsif ($u =~ /^ url /x) {
+    elsif ($u =~ / url /x) {
+        warn "Not implemented: url";
+    }
+    else {
+        warn R "Didn't find", G 'itag', R 'or', G 'url', R 'in', G 'u:', BB $u;
+    }
+}
+
+(@urls = @u_mp4) || (@urls = @u_flv) || die "Couldn't understand any urls.";
+
+# in order of pref
+my @QUALS = qw/ hd1080 hd720 large medium small /;
+
+my @quals = $opt_s ? $opt_s : @QUALS;
+
+D2 'num_urls', scalar @urls;
+D2 '', $_->[0] for @urls;
+
+URL:
+for my $u (@urls) {
+    my ($_u, $qual) = @$u;
+    for my $q (@quals) {
+        if ($qual eq $q) {
+            $url = $_u;
+            last URL;
+        }
+    }
+}
+
+if (!$url) {
+    warn "Couldn't get preferred url based on qual/type; using first.";
+    $url = $urls[0][0];
+}
+
+my $u_sub = substr($url, 0, 20) . "...";
+
+$opt_q or threads->create(\&progress)->detach;
+
+D2 'url', $url;
+D2 'Out_file', $Out_file;
+
+my $o;
+$o = $Out_file;
+$ua->add_handler( response_header => sub {
+    my ( $res, $ua, $h ) = @_;
+    $Content_length = $res->header('content-length');
+});
+
+my @range = ();
+
+if($outfile_exists) {
+    $Outfile_size = (stat $Out_file)->size;
+#    my $start = (stat $Out_file)->size;
+#    $start++;
+my $start = 171226943;
+    $opt_q or say "Resuming from ", G $start, " bytes";
+$o .= 'resume';
+
+$url .= "&range=$start-";
+
+#TWO PROBLEMS:
+#clobbers the file, and is unreadable as movie, probably because you have to
+#go left a bit or right a bit.
+#maybe give params to url?
+    #@range = (':range' => "bytes=$start-");
+}
+
+$opt_v and D 'url', $url;
+
+$res = $ua->get($url,
+    ':content_file'     => $o,
+);
+
+sub metadata_file {
+    while (1) {
+        # set in main thread
+        defined $Out_file and last;
+        sleep .5;
+    }
+D2 'got out', $Out_file;
+    my $o = $Out_file;
+    utf8::decode $o;
+    while (1) {
+        # set in main thread
+        defined $Content_length and last;
+        sleep .5;
+    }
+D2 'got cl', $Content_length;
+    open my $fh, ">:utf8", "$Yt_file" or die "$Yt_file: $!";
+
+    say $fh $o;
+    say $fh $Content_length;
+}
+
+## resumes if necessary (in contrast to ->get)
+# doesn't do what i thought.
+#$res = $ua->mirror($url, $o);
+
+if ( ! $res->is_success ) {
+    warn sprintf "error with url (%s): %s", $u_sub, $res->status_line;
+}
+
+say STDERR '';
+
+exit;
+
+sub progress {
+    my $first = 1;
+    while ( 1 ) {
+        $first ? $first = 0 : sleep .5 ;
+        if (!$Content_length) {
+            sleep .5;
+            next;
+        }
+
+        my $offset = $Outfile_size || 0;
+        my $a = num(stat($Out_file)->size);
+        my $b = num($Content_length + $offset);
+
+        my $s = sprintf "%s / %s", B $a, B $b;
+
+        print STDERR "\r" . " " x 40 . "" x 40;
+        printf STDERR $s;
+    }
+}
+
+sub num {
+    # bytes
+    my $n = shift;
+    if ( $n < 1000 ) {
+        return sprintf "%d%s", $n, 'b';
+    }
+    elsif ( $n < 1024000 ) {
+        return sprintf "%.1f%s", $n / 1024, 'K';
+    }
+    elsif ( $n < 1024000 * 1024 ) {
+        return sprintf "%.1f%s", $n / 1024 / 1024, 'M';
+    }
+}
+
+sub END {
+#    if ($Yt_file) {
+#        open my $fh, ">:utf8", "$Yt_file" or die "$Yt_file: $!";
+#        say $fh ($Ok ? "$Out_file\n$Content_length" : '');
+#    }
+}
+
+
+
+sub error {
+    my @s = @_;
+    die join ' ', @s, "\n";
+}
+
+sub war {
+    my @s = @_;
+    warn join ' ', @s, "\n";
+}
+
+
