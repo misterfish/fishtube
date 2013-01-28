@@ -43,7 +43,7 @@ sub war;
 my $TMP = '/tmp';
 
 my $MOVIE_PLAYER = 'mplayer';
-my $MOVIE_PLAYER_OPTS = '';
+my $MOVIE_PLAYER_OPTS = '-af scaletempo';
 
 our ($opt_h, $opt_p, $opt_d, $opt_o);
 getopts('hp:do:');
