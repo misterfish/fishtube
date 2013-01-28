@@ -1,6 +1,6 @@
-Best: PACKAGE-BASED INSTALL (package names given are Debian names)
+PACKAGE-BASED INSTALL (best)
 
-  Install:
+  Install: (package names given are Debian names)
 
     libdbi-perl
     libfile-slurp-perl
@@ -21,17 +21,17 @@ Best: PACKAGE-BASED INSTALL (package names given are Debian names)
 
 
 
-MANUAL COMPILE / INSTALL, systemwide (needs root, not just sudo)
+MANUAL COMPILE / INSTALL, systemwide
 
   Install 'cpanm':
-    sudo su - 
-    wget -O- http://cpanmin.us | perl - App::cpanminus 
+    sudo wget -O- http://cpanmin.us | sudo perl - App::cpanminus 
 
   Install modules: (will take a long time)
     sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent		
 
   Errors can be examined by going to build dir and compiling, e.g.:
   
+    sudo su -           (maybe)
     cd /root/.cpanm/latest-build/DBI-1.623
     perl Makefile.PL
     make install
