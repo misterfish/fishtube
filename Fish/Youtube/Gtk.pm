@@ -201,7 +201,6 @@ sub init {
     $lwf->add($lw);
     $l->add($lwf);
 
-    #my $button_add = Gtk2::Button->new_from_stock('gtk-add');
     my $button_add = Gtk2::EventBox->new;
     $button_add->add(Gtk2::Image->new_from_file($Img{add}));
     $button_add->signal_connect('button-press-event', sub {
