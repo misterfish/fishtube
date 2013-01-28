@@ -478,14 +478,6 @@ sub get_color {
 sub row_activated {
     my ($obj, $path, $column) = @_;
 
-    if (! $output_dir) {
-        # remove_all doesn't seem to work.
-        $status_bar->pop(STATUS_OD);
-        $status_bar->push(STATUS_OD, 'Choose output dir first.');
-        return;
-    }
-
-
     my $row_idx = $path->get_indices;
     my $d = $movie_data[$row_idx] or die;
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
@@ -499,6 +491,13 @@ sub start_download {
     # already downloaded
     return if $D->exists($mid);
     
+    if (! $output_dir) {
+        # remove_all doesn't seem to work.
+        $status_bar->pop(STATUS_OD);
+        $status_bar->push(STATUS_OD, 'Choose output dir first.');
+        return;
+    }
+
     $download_successful{$mid} = 0;
     $auto_launched{$mid} = 0;
 
@@ -519,9 +518,14 @@ sub start_download {
     my $manual;
     my $of;
 
+    my $force_get;
+
     # manual download -- get name from youtube-get
     if (! $t) {
         $manual = 1;
+
+        # overwrite if exists
+        $force_get = 1;
     } 
     
     else {
@@ -585,7 +589,7 @@ sub start_download {
     }
 
     # make some of these vars internal to main todo
-    my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $output_dir);
+    my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $output_dir, $force_get);
 
     if (!$pid) {
         # subproc failed.

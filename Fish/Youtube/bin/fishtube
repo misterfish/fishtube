@@ -43,7 +43,9 @@ sub war;
 my $TMP = '/tmp';
 
 my $MOVIE_PLAYER = 'mplayer';
-my $MOVIE_PLAYER_OPTS = '-af scaletempo';
+# use [ and ] for changing speed of movie without chipmunking the sound. 
+# and allow resizing.
+my $MOVIE_PLAYER_OPTS = '-af scaletempo -zoom';
 
 our ($opt_h, $opt_p, $opt_d, $opt_o);
 getopts('hp:do:');
@@ -212,14 +214,16 @@ sub start_download {
     my $of = shift;
     my $tmp = shift or die;
     my $output_dir = shift or die;
+    my $force_get = shift // 0;
 
     # bg start
     my $o = $of ? qq| -o "$of"| : "-d '$output_dir'";
 
     my $err_file = "$tmp/yt-err";
+    my $force = $force_get ? '-f' : '';
     # anything on out is an err
     # quiet, no terminal (i.e. disable colors)
-    my $cmd = qq, $main::bin_dir/youtube-get 2>"$err_file" -q -T -t "$tmp" $o "$url ",;
+    my $cmd = qq, $main::bin_dir/youtube-get 2>"$err_file" $force -q -T -t "$tmp" $o "$url ",;
     D2 'cmd', $cmd;
 
     my ($pid) = sync_exec $cmd;
