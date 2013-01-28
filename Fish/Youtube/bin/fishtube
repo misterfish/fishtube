@@ -201,7 +201,7 @@ sub war {
 
 
 sub get_tmp_dir {
-    return File::Temp->newdir( 'fishtubeXXXX', DIR => $TMP, CLEANUP => 0 );
+    return File::Temp->newdir( 'fishtubeXXXX', DIR => $TMP, CLEANUP => 1 );
 }
 
 sub start_download {
