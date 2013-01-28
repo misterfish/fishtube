@@ -680,7 +680,11 @@ sub file_progress {
     }
     else {
         # killed
+
         # ps, heavy?
+
+        # download could complete between if and else. ??
+
         if ( ! sys_ok "ps $pid") {
             movie_panic($err_file, $mid);
             return 0;
@@ -1059,6 +1063,8 @@ sub set_label {
     my $markup = $s1 . $text . $s2;
 
 #D 'markup', $markup;
+
+    $markup =~ s/\&/&amp;/g;
 
     my ($al, $txt, $accel_char) = Pango->parse_markup($markup);
     $label->set_attributes($al);
