@@ -2,6 +2,8 @@ First, you need perl > 5.10.0. (Check with perl -v). You can do it via the
 package manager. If you don't have a package manager or don't have sudo, you
 have to build perl yourself, which is too complicated to describe here.
 
+You will probably also want mplayer. (Package 'mplayer' in debian). 
+
 PACKAGE-BASED INSTALL (best)
 ---------------------
 
