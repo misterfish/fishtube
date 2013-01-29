@@ -14,8 +14,6 @@ use Time::HiRes 'sleep';
 
 use Fish::Youtube::Utility;
 
-# jitter factors should also scale (todo)
-
 # arc1 begin
 my @perc1 = (.23, 1);
 # arc1 end
@@ -83,24 +81,40 @@ has args7 => (
     isa => 'ArrayRef',
 );
 
+has lw => (
+    is => 'rw',
+    isa => 'Num',
+);
+
 sub BUILD {
 
     my ($self, @args) = @_;
 
+    # use width as master scale factor
     my ($w, $h) = ($self->width, $self->height);
+
+    my $jitter1 = .2 * $w;
+    my $jitter2 = .05 * $w;
+    my $jitter3 = .03 * $w;
+    my $jitter4 = .02 * $w;
+    my $jitter5 = .1 * $w;
+    my $jitter6 = .08 * $w;
+
+    my $lw = .05 * $w;
+    $self->lw($lw);
 
     my @cur = ($perc1[0] * $w, $perc1[1] * $h);
 
-    $cur[0] += myrand(0, 20);
-    $cur[1] += myrand(-20, 0);
+    $cur[0] += myrand(0, $jitter4);
+    $cur[1] += myrand(-1 * $jitter4, 0);
 
     my @end = ($perc2[0] * $w, $perc2[1] * $h);
-    $end[0] += myrand(0, 5);
-    $end[1] += myrand(0, 5);
+    $end[0] += myrand(0, $jitter2);
+    $end[1] += myrand(0, $jitter2);
 
     my @d1 = (0, 0);
-    $d1[0] += myrand(0, 3);
-    $d1[1] += myrand(0, 3);
+    $d1[0] += myrand(0, $jitter3);
+    $d1[1] += myrand(0, $jitter3);
 
     my @ctl1 = ($cur[0] + ($end[0] - $cur[0]) * 1/2 + $d1[0], $end[1] + ($cur[1] - $end[1]) * 1/2 + $d1[1]);
     my @ctl2 = @ctl1;
@@ -109,18 +123,18 @@ sub BUILD {
     $self->args2( [$ctl1[0], $ctl1[1], $ctl2[0], $ctl2[1], $end[0], $end[1]]);
 
     @cur = ($perc3[0] * $w, 0);
-    $cur[0] += myrand(-5, 0);
-    $cur[1] += myrand(0, 5);
+    $cur[0] += myrand(-1 * $jitter2, 0);
+    $cur[1] += myrand(0, $jitter2);
 
     @end = ($perc4[0] * $w, $perc4[1] * $h);
-    $end[0] += myrand(-5, 0);
-    $end[1] += myrand(-5, 0);
+    $end[0] += myrand(-1 * $jitter2, 0);
+    $end[1] += myrand(-1 * $jitter2, 0);
 
     $self->args3([@cur]);
 
     @d1 = (0, 0);
-    $d1[0] += myrand(-2, 0);
-    $d1[1] += myrand(-2, 0);
+    $d1[0] += myrand(-1 * $jitter4, 0);
+    $d1[1] += myrand(-1 * $jitter4, 0);
 
     @ctl1 = ($cur[0] + ($end[0] - $cur[0]) * 1/2 + $d1[0], $cur[1] + ($end[1] - $cur[1]) * 1/2 + $d1[1]);
     @ctl2 = @ctl1;
@@ -128,16 +142,16 @@ sub BUILD {
     $self->args4([$ctl1[0], $ctl1[1], $ctl2[0], $ctl2[1], $end[0], $end[1]]);
 
     @cur = ($perc5[0] * $w, $perc5[1] * $h);
-    $cur[0] += myrand(0, 10);
-    $cur[1] += myrand(-10, 0);
+    $cur[0] += myrand(0, $jitter5);
+    $cur[1] += myrand(-1 * $jitter5, 0);
 
     @end = ($perc6[0] * $w, $perc6[1] * $h);
-    $end[0] += myrand(0, 10);
-    $end[1] += myrand(-10, 0);
+    $end[0] += myrand(0, $jitter5);
+    $end[1] += myrand(-1 * $jitter5, 0);
 
     @d1 = (0, 0);
-    $d1[0] += myrand(-8, 8);
-    $d1[1] += myrand(-8, 8);
+    $d1[0] += myrand(-1 * $jitter6, $jitter6);
+    $d1[1] += myrand(-1 * $jitter6, $jitter6);
 
     @ctl1 = ($cur[0] + ($end[0] - $cur[0]) * 1/2 + $d1[0], $cur[1] + ($end[1] - $cur[1]) * 1/2 + $d1[1]);
     @ctl2 = @ctl1;
@@ -148,9 +162,9 @@ sub BUILD {
     my @center = ($perc7[0] * $w, $perc7[1] * $h);
     my $r = $perc8 * $w;
 
-    $center[0] += myrand(0, 5);
-    $center[1] += myrand(-5, 0);
-    $r += myrand(-5, 1);
+    $center[0] += myrand(0, $jitter2);
+    $center[1] += myrand(-1 * $jitter2, 0);
+    $r += myrand(-1 * $jitter2, 1);
 
     $self->r($r);
 
@@ -190,7 +204,7 @@ sub draw {
     # fills the whole thing.
     $cr->paint;
 
-    $cr->set_line_width(5);
+    $cr->set_line_width($self->lw);
 
     if ($last) {
         $cr->set_source_rgba (0, 0, 0, 1);
@@ -203,15 +217,14 @@ sub draw {
     $cr->move_to(@{$self->args1});
     $cr->curve_to(@{$self->args2});
 
-    my $T = 100;
-    $cr->set_dash(0, $T * $t1 , 1000);
+    $cr->set_dash(0, $w * $t1 , 1000);
     $cr->stroke;
 
     if ($t2) {
         $cr->move_to(@{$self->args3});
         $cr->curve_to(@{$self->args4});
 
-        $cr->set_dash(0, $T * $t2, 1000);
+        $cr->set_dash(0, $w * $t2, 1000);
         $cr->stroke;
     }
 
@@ -219,7 +232,7 @@ sub draw {
         $cr->move_to(@{$self->args5});
         $cr->curve_to(@{$self->args6});
 
-        $cr->set_dash(0, $T * $t3, 1000);
+        $cr->set_dash(0, $w * $t3, 1000);
         $cr->stroke;
     }
 

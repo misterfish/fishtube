@@ -142,7 +142,8 @@ if ($Out_file !~ /^\// and $opt_d) {
     $Out_file = "$opt_d/$Out_file";
 }
 
-async { metadata_file() }->detach;
+#async { metadata_file() }->detach;
+my $meta_thread = async { metadata_file() };
 
 #$opt_k and $file .= "-$opt_k";
 $opt_q or D 'pid yg', $$;
@@ -272,6 +273,7 @@ sub metadata_file {
     while (1) {
         # set in main thread
         defined $Out_file and last;
+D2 'waiting for out_file';
         sleep .5;
     }
 D2 'got out', $Out_file;
@@ -280,6 +282,7 @@ D2 'got out', $Out_file;
     while (1) {
         # set in main thread
         defined $Content_length and last;
+D2 'waiting for content_length';
         sleep .5;
     }
 D2 'got cl', $Content_length;
@@ -287,6 +290,8 @@ D2 'got cl', $Content_length;
 
     say $fh $o;
     say $fh $Content_length;
+
+D2 'printed to out', $Yt_file;
 }
 
 ## resumes if necessary (in contrast to ->get)
@@ -298,6 +303,8 @@ if ( ! $res->is_success ) {
 }
 
 say STDERR '';
+
+$meta_thread->join;
 
 exit;
 
@@ -334,6 +341,7 @@ sub num {
         return sprintf "%.1f%s", $n / 1024 / 1024, 'M';
     }
 }
+
 
 sub END {
 #    if ($Yt_file) {

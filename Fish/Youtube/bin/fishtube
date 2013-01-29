@@ -31,7 +31,7 @@ use Gtk2;
 
 use Time::HiRes 'sleep';
 
-use POSIX 'WNOHANG';
+use POSIX qw/ WNOHANG setsid /;
 use Proc::SyncExec qw/ sync_exec sync_popen_noshell /;
 use Proc::ProcessTable;
 
@@ -284,12 +284,22 @@ sub watch_movie {
         return;
     }
     if ( ! sys_ok qq, which $MOVIE_PLAYER , ) {
-        $g->err("Movie player '$MOVIE_PLAYER' doesn't exist.");
+        $g->status("Movie player '$MOVIE_PLAYER' doesn't exist.");
         return;
     }
 
     my $o = $MOVIE_PLAYER_OPTS // '';
-    my $pid = sync_exec qq, $MOVIE_PLAYER $o "$file" ,;
+    #my $pid = sync_exec qq, $MOVIE_PLAYER $o "$file" ,;
+    if (my $pid = fork) {
+        D 'child pid', $pid;
+    }
+    else {
+        # not necessary
+        setsid();
+        # mplayer spawns a new shell and this ends up 'defunct', causing
+        # segfault on close?
+        exec qq, $MOVIE_PLAYER $o "$file" ,;
+    }
 }
 
 sub set_output_dir {

@@ -33,6 +33,7 @@ use Math::Trig ':pi';
 
 # make up a unique id
 use constant STATUS_OD => 100;
+use constant STATUS_MISC => 101;
 
 use File::Slurp;
 
@@ -76,8 +77,8 @@ my $Width;
 
 my $WID_PERC = .75;
 
-my $WP = 100;
-my $HP = 100;
+my $WP = 50;
+my $HP = 50;
 
 my $RIGHT_SPACING_H_1 = 10;
 my $RIGHT_SPACING_H_2 = 10;
@@ -324,43 +325,9 @@ sub init {
     });
 
 
-my $SIMULATE = 0;
-my $sim_idx = 0;
-my $SIM_TMP = main::get_tmp_dir();
-$SIMULATE and set_pane_position($Width / 2);
-$SIMULATE and timeout(1000, sub {
-    ++$last_mid;
-    my $mid = $last_mid;
-    my $size = int rand 1e6;
-    my $of = "$SIM_TMP/blah$mid.flv";
-    my $err_file = 'null';
-    my $pid = -1234;
-    add_download($mid, $of, $size, $err_file, $pid);
+my $SIMULATE = 1;
 
-    my $fh = safeopen ">$of";
-    select $fh;
-    $| = 1;
-    select STDOUT;
-
-    my $cur_size = 0;
-    my $bytes = int ($size / 30);
-    timeout(100, sub {
-        if ($size - $cur_size < $bytes) {
-            print $fh '1' x ($size - $cur_size);
-            return 0;
-        }
-        else {
-            print $fh '1' x $bytes;
-            $cur_size += $bytes;
-        }
-    });
-
-    timeout( 200, sub { 
-        return file_progress({ simulate => 1}, $mid, $of, $size, $err_file, $pid);
-    });
-
-    return ++$sim_idx == 10 ? 0 : 1;
-});
+    $SIMULATE and simulate();
 
     my @init_chain;
 
@@ -517,7 +484,8 @@ sub start_download {
 
     my $box;
 
-    my $tmp = main::get_tmp_dir();
+    #my $tmp = main::get_tmp_dir();
+    my $tmp = '/tmp/mytmp';
 
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
@@ -613,59 +581,82 @@ sub start_download {
 
     my $i = 0;
 
+    my $try = 0;
     # wait for forked proc to tell us something.
     timeout(2000, sub {
-        my $size;
-
         $i++ > 20 and error "youtube-get behaving strange.";
 
-        my ($s, $code) = sys qq, cat 2>/dev/null "$tmp/.yt-file",, 0;
-        
-        if ($s =~ /(.+)\n(\d+)/) {
+        my ($name, $size);
+        # aborted or finished very fast
+        if (! main::process_running($pid)) {
+            ($name, $size) = get_metadata("$tmp/.yt-file");
 
-            # got name and size from forked proc. officially start download.
-           
-            my $name;
-            ($name, $size) = ($1, $2);
-
-            # name and of are in principle the same. name comes from the
-            # parsed html of the fetched page, of comes from the browser
-            # cache.
-            my $o;
-            if ($manual) {
-                $o = $name;
-                $t = basename $name;
-                $t =~ s/\.\w+$//;
+            if (!$name) {
+                # could still be waiting for fh from child to flush. wait
+                # another two seconds ...
+                if (++$try == 2) {
+                    war "sdChild died", Y $pid;
+                    movie_panic_while_waiting($err_file, $mid);
+                    return 0;
+                }
+                return 1;
             }
             else {
-                $o = $of;
+                # ok
             }
-
-            add_download($mid, $t, $size, $o, $pid);
-
-            timeout( 200, sub { 
-                return file_progress({ simulate => 0}, $mid, $o, $size, $err_file, $pid);
-            });
-
-            # ok, stop waiting.
-            return 0;
+        }
+        # still running
+        else {
+            ($name, $size) = get_metadata("$tmp/.yt-file");
+            # keep waiting
+            return 1 unless $name;
         }
 
-        if (! main::process_running($pid)) {
-            # child proc died before we could get the metadata.
-            war "Child died", Y $pid;
+        # got it, add download and kill timeout
 
-            movie_panic_while_waiting($err_file, $mid);
-
-            return 0;
+        # name and of are in principle the same. name comes from the
+        # parsed html of the fetched page, of comes from the browser
+        # cache.
+        my $o;
+        if ($manual) {
+            $o = $name;
+            $t = basename $name;
+            $t =~ s/\.\w+$//;
+        }
+        else {
+            $o = $of;
         }
 
-        # keep waiting
-        return 1;
+        add_download($mid, $t, $size, $o, $pid);
+
+        timeout( 200, sub { 
+            return file_progress({ simulate => 0}, $mid, $o, $size, $err_file, $pid);
+        });
+
+        return 0;
     });
-    # / fork wait
+    # / child wait
+}
 
+sub get_metadata {
+    my ($file) = @_;
 
+    my ($s, $code) = sys qq, cat 2>/dev/null $file,, 0;
+    
+    my ($name, $size);
+
+    if ($s =~ /(.+)\n(\d+)/) {
+
+        # got name and size from forked proc. can officially start download.
+       
+        ($name, $size) = ($1, $2);
+        return ($name, $size);
+    }
+    else {
+        D2 'no meta';
+    }
+
+    return;
 }
 
 sub file_progress {
@@ -1101,7 +1092,7 @@ sub set_label {
 sub err {
     my ($a, $b) = @_;
 
-    Gtk2::Gdk::Threads->enter;
+    #Gtk2::Gdk::Threads->enter;
 
     # class method or not
     my $s = $b // $a;
@@ -1116,7 +1107,13 @@ sub err {
     
     $dialog->run;
 
-    Gtk2::Gdk::Threads->leave;
+    #Gtk2::Gdk::Threads->leave;
+}
+
+sub status {
+    my ($class, $s) = @_;
+    $inited or warn, return;
+    $status_bar->push(STATUS_MISC, $s);
 }
 
 sub mess {
@@ -1325,7 +1322,6 @@ sub output_dir_dialog {
         my ($self, $res) = @_;
         if ($res eq 'accept') {
             $od = $d->get_filename or die;
-            #D $od;
             $d->destroy;
         }
         else {
@@ -1356,10 +1352,8 @@ sub set_output_dir {
     main::set_output_dir($output_dir);
 
     timeout(100, sub {
-            #Gtk2::Gdk::Threads->enter;
         $status_bar_dir or return 1;
         set_label($status_bar_dir, "$OUTPUT_DIR_TXT $output_dir", { size => 'small' });
-        #Gtk2::Gdk::Threads->leave;
         0;
     });
 }
@@ -1374,5 +1368,44 @@ sub set_cursor_timeout {
         1;
     });
 }
+sub simulate {
+    my $SIM_TMP = main::get_tmp_dir();
+    my $sim_idx = 0;
+    set_pane_position($Width / 2);
+    timeout(1000, sub {
+        ++$last_mid;
+        my $mid = $last_mid;
+        my $size = int rand 1e6;
+        my $of = "$SIM_TMP/blah$mid.flv";
+        my $err_file = 'null';
+        my $pid = -1234;
+        add_download($mid, $of, $size, $err_file, $pid);
+
+        my $fh = safeopen ">$of";
+        select $fh;
+        $| = 1;
+        select STDOUT;
+
+        my $cur_size = 0;
+        my $bytes = int ($size / 30);
+        timeout(100, sub {
+            if ($size - $cur_size < $bytes) {
+                print $fh '1' x ($size - $cur_size);
+                return 0;
+            }
+            else {
+                print $fh '1' x $bytes;
+                $cur_size += $bytes;
+            }
+        });
+
+        timeout( 200, sub { 
+            return file_progress({ simulate => 1}, $mid, $of, $size, $err_file, $pid);
+        });
+
+        return ++$sim_idx == 10 ? 0 : 1;
+    });
+}
+
 
 1;
