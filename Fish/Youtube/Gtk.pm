@@ -324,25 +324,43 @@ sub init {
     });
 
 
-#my $SIMULATE = 0;
-#my $sim_idx = 0;
-#$SIMULATE and timeout(1000, sub {
-#    ++$last_mid;
-#    my $mid = $last_mid;
-#    $prog{$mid} = 0;
-#    my $size = int rand 1e6;
-#    add_download($mid, 'blah', $size, '/tmp/t.flv');
-#
-#    my $this_mid = $mid;
-#
-#    # 100 times
-#    timeout(100, sub {
-#        $prog{$this_mid} += $size / 100;
-#        $prog{$this_mid} >= $size and D2 'done' and return 0;
-#        return 1;
-#    });
-#    return ++$sim_idx == 10 ? 0 : 1;
-#});
+my $SIMULATE = 0;
+my $sim_idx = 0;
+my $SIM_TMP = main::get_tmp_dir();
+$SIMULATE and set_pane_position($Width / 2);
+$SIMULATE and timeout(1000, sub {
+    ++$last_mid;
+    my $mid = $last_mid;
+    my $size = int rand 1e6;
+    my $of = "$SIM_TMP/blah$mid.flv";
+    my $err_file = 'null';
+    my $pid = -1234;
+    add_download($mid, $of, $size, $err_file, $pid);
+
+    my $fh = safeopen ">$of";
+    select $fh;
+    $| = 1;
+    select STDOUT;
+
+    my $cur_size = 0;
+    my $bytes = int ($size / 30);
+    timeout(100, sub {
+        if ($size - $cur_size < $bytes) {
+            print $fh '1' x ($size - $cur_size);
+            return 0;
+        }
+        else {
+            print $fh '1' x $bytes;
+            $cur_size += $bytes;
+        }
+    });
+
+    timeout( 200, sub { 
+        return file_progress({ simulate => 1}, $mid, $of, $size, $err_file, $pid);
+    });
+
+    return ++$sim_idx == 10 ? 0 : 1;
+});
 
     my @init_chain;
 
@@ -352,10 +370,6 @@ sub init {
             main::set_profile_dir($pd);
         };
     }
-
-#    if ($od_ask) {
-#        push @init_chain, \&do_output_dir_dialog;
-#    }
 
     push @init_chain, sub { $inited = 1 };
 
@@ -630,7 +644,7 @@ sub start_download {
             add_download($mid, $t, $size, $o, $pid);
 
             timeout( 200, sub { 
-                return file_progress($mid, $o, $size, $err_file, $pid);
+                return file_progress({ simulate => 0}, $mid, $o, $size, $err_file, $pid);
             });
 
             # ok, stop waiting.
@@ -655,13 +669,18 @@ sub start_download {
 }
 
 sub file_progress {
+    my $simulate;
+    if (ref $_[0] eq 'HASH') {
+        my $opt = shift;
+        $simulate = $opt->{simulate} // 0;
+    }
     my ($mid, $file, $size, $err_file, $pid) = @_;
     my $s = stat $file or warn(), return 1;
 
     my $d = $D->get($mid);
 
     # download object destroyed for some reason
-    if (! $d) {
+    if (! $d and ! $simulate) {
         movie_panic($err_file, $mid);
         return 0;
     }
@@ -669,31 +688,35 @@ sub file_progress {
     my $cur_size = $s->size;
     $d->prog($cur_size);
 
-    if (!$auto_launched{$mid}) {
+    if (!$auto_launched{$mid} and ! $simulate ) {
         if ($cur_size / $size * 100 > $AUTO_WATCH_PERC) {
             $auto_launched{$mid} = 1;
             main::watch_movie($file);
         }
     }
 
-    D2 'cur_size', $cur_size;
+    # process not running -- finished or aborted
 
-    if ($cur_size == $size) {
-        download_finished($mid);
-        return 0;
-    }
-    else {
-        # killed
+    # ps, heavy?
 
-        # ps, heavy?
+    if ( ! sys_ok "ps $pid" and ! $simulate ) {
 
-        # download could complete between if and else. ??
+        D2 'cur_size', $cur_size;
 
-        if ( ! sys_ok "ps $pid") {
+        # finished
+        if ($cur_size == $size) {
+            download_finished($mid);
+            return 0;
+        }
+
+        # cancelled / other problem
+        else {
             movie_panic($err_file, $mid);
             return 0;
         }
     }
+
+    # still downloading
     return 1;
 }
 
