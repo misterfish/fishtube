@@ -243,6 +243,7 @@ sub init {
     my $status_bar_dir_box = Gtk2::EventBox->new;
     $status_bar_dir_box->modify_bg('normal', $white);
     my $status_bar_dir_box_al = Gtk2::Alignment->new(1, 0, 0, 0);
+
     $status_bar_dir_box_al->add($status_bar_dir_box);
     $status_bar_dir_box->add($status_bar_dir);
     set_cursor_timeout($status_bar_dir_box, 'hand2');
@@ -262,7 +263,7 @@ sub init {
     # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
     my $oo = [qw/ expand shrink fill /];
     my $ooo = 'shrink';
-    $status_table->attach($status_bar, 0, 1, 0, 1, $oo, $oo, 10, 10);
+    $status_table->attach($status_bar, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
     $status_table->attach($status_bar_dir_box_al, 1, 2, 0, 1, $ooo, $ooo, 10, 10);
 
     $status_bar->set_size_request($Width * .7, -1);
@@ -276,6 +277,14 @@ sub init {
     #$status_box->pack_end($status_bar_dir, 1, 1, 10);
 
     $outer_box->pack_end($status_table, 0, 0, 10);
+
+    #
+    #$status_table->modify_bg('normal', $black);
+    #$outer_box->modify_bg('normal', $black);
+    #$status_table->modify_bg('active', $black);
+    #$outer_box->modify_bg('active', $black);
+    #$status_table->modify_bg('insensitive', $black);
+    #$outer_box->modify_bg('insensitive', $black);
 
     $w->add($outer_box);
 

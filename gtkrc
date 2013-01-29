@@ -1,0 +1,12 @@
+style "fritz" {
+    #font_name = "Sans Italic 10"
+    #bg[NORMAL] = "#000000"
+    #fg[NORMAL] = "#000000"
+    #bg[INSENSITIVE] = "#000000"
+    #fg[INSENSITIVE] = "#000000"
+
+    GtkStatusbar ::shadow-type = GTK_SHADOW_NONE
+
+}
+
+class "GtkWidget" style "fritz"
