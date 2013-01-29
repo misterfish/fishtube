@@ -105,8 +105,8 @@ sub BUILD {
 
     my @cur = ($perc1[0] * $w, $perc1[1] * $h);
 
-    $cur[0] += myrand(0, $jitter4);
-    $cur[1] += myrand(-1 * $jitter4, 0);
+    $cur[0] += myrand(0, $jitter1);
+    $cur[1] += myrand(-1 * $jitter1, 0);
 
     my @end = ($perc2[0] * $w, $perc2[1] * $h);
     $end[0] += myrand(0, $jitter2);
