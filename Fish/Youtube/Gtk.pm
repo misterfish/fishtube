@@ -86,6 +86,7 @@ my $RIGHT_PADDING_TOP = 20;
 
 # start watching when this perc downloaded.
 my $AUTO_WATCH_PERC = 10;
+my $auto_start_watching = 1;
 
 my $RIGHT_SPACING_V = 15;
 
@@ -242,9 +243,9 @@ sub init {
     # want to flush label right but doesn't work
     my $status_bar_dir_box = Gtk2::EventBox->new;
     $status_bar_dir_box->modify_bg('normal', $white);
-    my $status_bar_dir_box_al = Gtk2::Alignment->new(1, 0, 0, 0);
+    #my $status_bar_dir_box_al = Gtk2::Alignment->new(1, 0, 0, 0);
 
-    $status_bar_dir_box_al->add($status_bar_dir_box);
+    #$status_bar_dir_box_al->add($status_bar_dir_box);
     $status_bar_dir_box->add($status_bar_dir);
     set_cursor_timeout($status_bar_dir_box, 'hand2');
 
@@ -258,19 +259,34 @@ sub init {
     # fill has no effect if expand is 0.
     $outer_box->pack_start($hp, 1, 1, 0);
 
+    set_label($status_bar_dir, "$OUTPUT_DIR_TXT", { size => 'small', color => 'red'});
+
+    my $auto_start_cb = Gtk2::CheckButton->new('');
+    $auto_start_cb->set_active(1);
+    $auto_start_cb->signal_connect('toggled', sub {
+        state $state = 1;
+        $state = !$state;
+        $auto_start_watching = $state;
+    });
+    {
+        my $l = ($auto_start_cb->get_children)[0];
+        set_label($l, "Auto start ($AUTO_WATCH_PERC%)", { size => 'small' });
+    }
+    my $status_bar_right_hbox = Gtk2::HBox->new(0);
+    $status_bar_right_hbox->pack_start($auto_start_cb, 0, 0, 10);
+    $status_bar_right_hbox->pack_start($status_bar_dir_box, 0, 0, 10);
+
     # row, col, homog
     my $status_table = Gtk2::Table->new(1, 2, 0);
     # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
     my $oo = [qw/ expand shrink fill /];
     my $ooo = 'shrink';
     $status_table->attach($status_bar, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
-    $status_table->attach($status_bar_dir_box_al, 1, 2, 0, 1, $ooo, $ooo, 10, 10);
+    $status_table->attach($status_bar_right_hbox, 1, 2, 0, 1, $ooo, $ooo, 10, 10);
 
     $status_bar->set_size_request($Width * .7, -1);
-    $status_bar_dir->set_size_request($Width * .3, -1);
 
-    set_label($status_bar_dir, "$OUTPUT_DIR_TXT", { size => 'small', color
-=> 'red'});
+    $status_bar_dir->set_size_request($Width * .3, -1);
 
     $_->set_has_resize_grip(0) for $status_bar;
     #$status_box->pack_start($status_bar, 1, 1, 10);
@@ -690,7 +706,7 @@ sub file_progress {
     $d->prog($cur_size);
 
     if (!$auto_launched{$mid} and ! $simulate ) {
-        if ($cur_size / $size * 100 > $AUTO_WATCH_PERC) {
+        if ($auto_start_watching and $cur_size / $size * 100 > $AUTO_WATCH_PERC) {
             $auto_launched{$mid} = 1;
             main::watch_movie($file);
         }
@@ -1091,7 +1107,9 @@ sub set_label {
     my $s1 = '';
     my $s2 = '';
 
+    # ignore size -- do it with rc
     my $ss = $size ? qq|size="$size"|  : '';
+    #my $ss = '';
     my $sc = $color ? qq|color="$color"| : '';
     my @s = ($ss, $sc);
 
