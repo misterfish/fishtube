@@ -325,7 +325,7 @@ sub init {
     });
 
 
-my $SIMULATE = 1;
+my $SIMULATE = 0;
 
     $SIMULATE and simulate();
 
