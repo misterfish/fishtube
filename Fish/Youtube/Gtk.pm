@@ -311,6 +311,7 @@ sub init {
     timeout(50, sub {
 
             if ($D->is_anything_drawing) {
+D 'yes';
                 #Gtk2::Gdk::Threads->enter;
                 # And all children.
                 $w->queue_draw;

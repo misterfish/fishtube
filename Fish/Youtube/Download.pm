@@ -90,14 +90,18 @@ sub BUILD {
 
 sub started_drawing {
     my ($self) = @_;
-    $self->is_drawing(1);
-    $num_drawing++;
+    if (! $self->is_drawing) {
+        $self->is_drawing(1);
+        $num_drawing++;
+    }
 }
 
 sub stopped_drawing {
     my ($self) = @_;
-    $self->is_drawing(0);
-    $num_drawing--;
+    if ($self->is_drawing) {
+        $self->is_drawing(0);
+        $num_drawing--;
+    }
 }
 
 sub started_downloading {
@@ -139,10 +143,23 @@ sub c_stopped_downloading {
     }
 }
 
+sub c_started_drawing {
+    my ($class, $id) = @_;
+    my $d = $class->get($id) or warn;
+    $d->started_drawing;
+}
+
+sub c_stopped_drawing {
+    my ($class, $id) = @_;
+    my $d = $class->get($id) or warn;
+    $d->stopped_drawing;
+}
+
 sub c_delete {
     my ($class, $id) = @_;
 
-    $c->c_stopped_downloading($id);
+    $class->c_stopped_downloading($id);
+    $class->c_stopped_drawing($id);
 
     delete $downloads{$id} or warn;
 }

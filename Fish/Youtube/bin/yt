@@ -170,6 +170,7 @@ sub get_movie_from_fd {
     return undef;
 }
 
+# won't work if too many profiles
 sub get_movie_from_browser_history {
     my $cmd = qq, find $ENV{HOME}/.mozilla/firefox -maxdepth 1 -type d | tail -n 1 ,;
     my $dir = sys $cmd;
