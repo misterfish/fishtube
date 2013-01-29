@@ -306,16 +306,13 @@ sub init {
     # pane moved
     $hp->get_child1->signal_connect('size_allocate', sub { 
         $pane_pos = $hp->get_position;
-        $w->queue_draw;
+        redraw();
     });
 
     timeout(50, sub {
 
             if ($D->is_anything_drawing) {
-                #Gtk2::Gdk::Threads->enter;
-                # And all children.
-                $w->queue_draw;
-                #Gtk2::Gdk::Threads->leave;
+                redraw();
             }
         1;
     });
@@ -436,8 +433,13 @@ sub update_movie_tree {
 
 sub timeout {
     my ($time, $sub) = @_;
+
+    # Timeouts are called outside of the main lock loop and so you need to
+    # put enter/leave around them.
+
     my $new = sub {
         Gtk2::Gdk::Threads->enter;
+        # always scalar -- return is 0 or 1
         my $r = $sub->(@_);
         Gtk2::Gdk::Threads->leave;
         $r;
@@ -742,6 +744,7 @@ sub poll_downloads {
     my $pid = $download_buf{pid};
 
     my $pixmap = make_pixmap();
+    clear_pixmap($pixmap);
 
     my $mid = $download_buf{mid};
 
@@ -849,9 +852,14 @@ sub poll_downloads {
     # check size, update download status, update pixmap
     timeout(50, sub {
 
-        my $d = $D->get($mid) or return 0;
-        #$d->is_downloading or return 0;
-        $d->is_drawing or return 0;
+        my $d = $D->get($mid) or do { 
+            D2 'stopping animation: download obj destroyed';
+            return 0;
+        };
+        $d->is_drawing or do {
+            D2 'stopping animation: is_drawing is 0';
+            return 0;
+        };
 
         state $last = -1;
         $size // return 1;
@@ -898,7 +906,13 @@ sub poll_downloads {
         if ($perc >= 100) {
             my $surface = $anarchy->draw(1, { last => 1});
 
+            D2 'animation loop: completed, stopping';
+
             draw_surface_on_pixmap($pixmap, $surface);
+
+            # manually call one last redraw
+            redraw();
+            
             $d->stopped_drawing;
             return 0;
         }
@@ -1405,6 +1419,11 @@ sub simulate {
 
         return ++$sim_idx == 10 ? 0 : 1;
     });
+}
+
+sub redraw {
+    # And all children.
+    $w->queue_draw;
 }
 
 
