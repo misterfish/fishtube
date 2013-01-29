@@ -495,8 +495,7 @@ sub start_download {
 
     my $box;
 
-    #my $tmp = main::get_tmp_dir();
-    my $tmp = '/tmp/mytmp';
+    my $tmp = main::get_tmp_dir();
 
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
