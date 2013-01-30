@@ -20,11 +20,11 @@ PACKAGE-BASED INSTALL (best)
 
   Then:
 
-    sudo cpanminus URI::Escape HTML::Entities LWP::UserAgent
+    sudo cpanminus URI::Escape HTML::Entities LWP::UserAgent Class::Generate
 
       or 
 
-    cpanminus URI::Escape HTML::Entities LWP::UserAgent
+    cpanminus URI::Escape HTML::Entities LWP::UserAgent Class::Generate
 
 MANUAL COMPILE / INSTALL, systemwide
 ------------------------
@@ -33,7 +33,7 @@ MANUAL COMPILE / INSTALL, systemwide
     sudo wget -O- http://cpanmin.us | sudo perl - App::cpanminus 
 
   Install modules: (will take a long time)
-    sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent		
+    sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent Class::Generate
 
   Errors can be examined by going to build dir and compiling, e.g.:
   
@@ -55,7 +55,7 @@ MANUAL COMPILE / INSTALL, per-user (no sudo)
     wget -O- http://cpanmin.us | perl - -l ~/perl5 App::cpanminus local::lib
 
   Install modules: (will take a long time)
-    cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent		
+    cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent Class::Generate
 
   Errors can be examined by going to e.g.  ~/.cpanm/latest-build/DBI-1.623 and typing 
     perl Makefile.PL
@@ -97,3 +97,4 @@ perl modules without debian packages
     URI::Escape
     HTML::Entities
     LWP::UserAgent		
+    Class::Generate

@@ -15,6 +15,10 @@ use Gtk2::SimpleList;
 
 use Gtk2::Pango;
 
+# make simple singleton classes for keeping global space neat and also gives
+# us -> accessors
+use Class::Generate 'class';
+
 die "Glib::Object thread safety failed" unless Glib::Object->set_threadsafe (1);
 
 use Fish::Youtube::Utility;
@@ -50,6 +54,25 @@ my $pane_pos;
 my $inited;
 
 my $im;
+
+my $w_sw = spawn_obj(
+    left => Gtk2::ScrolledWindow->new,
+    right => Gtk2::ScrolledWindow->new,
+);
+
+# all scalar members for now
+sub spawn_obj {
+    state $idx = 0;
+    my %stuff = @_;
+    my $class_name = 'anon' . ++$idx;
+    my @class_def = map { $_ => '$' } keys %stuff;
+
+    # class anon1 => [ x => '$', y => '$', ... ];
+    class $class_name => [ @class_def ];
+
+    my $obj = $class_name->new(%stuff);
+    return $obj;
+}
 
 my $tree_data_magic;
 
@@ -140,6 +163,8 @@ my %cancel_images;
 
 #^
 
+my $SCROLL_TO_TOP_ON_ADD = 1;
+
 my %auto_launched;
 
 my $OUTPUT_DIR_TXT = "Output dir:";
@@ -194,12 +219,10 @@ sub init {
     
     my $l_buttons = Gtk2::HBox->new;
 
-    my $lw = Gtk2::ScrolledWindow->new;
-
     $l->pack_start($l_buttons, 0, 0, 10);
 
     my $lwf = Gtk2::Frame->new;
-    $lwf->add($lw);
+    $lwf->add($w_sw->left);
     $l->add($lwf);
 
     my $button_add = Gtk2::EventBox->new;
@@ -213,7 +236,7 @@ sub init {
 
     $l_buttons->pack_start($button_add, 0, 0, 10);
 
-    $lw->set_policy('never', 'automatic');
+    $w_sw->left->set_policy('never', 'automatic');
 
     # is a TreeView
     $list = Gtk2::SimpleList->new ( 
@@ -222,8 +245,8 @@ sub init {
 
     $list->set_headers_visible(0);
 
-    $lw->add($list);
-    $lw->show_all;
+    $w_sw->left->add($list);
+    $w_sw->left->show_all;
 
     # tree_data_magic is tied
     $tree_data_magic = $list->{data};
@@ -289,25 +312,20 @@ sub init {
     $status_bar_dir->set_size_request($Width * .3, -1);
 
     $_->set_has_resize_grip(0) for $status_bar;
-    #$status_box->pack_start($status_bar, 1, 1, 10);
-    #$status_box->pack_end($status_bar_dir, 1, 1, 10);
 
     $outer_box->pack_end($status_table, 0, 0, 10);
 
-    #
-    #$status_table->modify_bg('normal', $black);
-    #$outer_box->modify_bg('normal', $black);
-    #$status_table->modify_bg('active', $black);
-    #$outer_box->modify_bg('active', $black);
-    #$status_table->modify_bg('insensitive', $black);
-    #$outer_box->modify_bg('insensitive', $black);
+    {
+        my $b = Gtk2::Button->new('a');
+        $b->signal_connect('clicked', sub {
+                # some debug
+            });
+        #$outer_box->add($b);
+    }
 
     $w->add($outer_box);
 
-    my $r;
-
-    $r = Gtk2::ScrolledWindow->new;
-    $r->set_policy('never', 'automatic');
+    $w_sw->right->set_policy('never', 'automatic');
 
     $hp->child2_shrink(1);
 
@@ -317,9 +335,9 @@ sub init {
     $layout->signal_connect('expose_event', \&expose_drawable );
     $layout->modify_bg('normal', $white);
 
-    $r->add($layout);
+    $w_sw->right->add($layout);
 
-    $hp->pack2($r, 0, 1);
+    $hp->pack2($w_sw->right, 0, 1);
 
     $w->show_all;
 
@@ -437,7 +455,7 @@ sub update_movie_tree {
         @n = @m;
     }
 
-    # tree data magic ... enter/exit necessary?
+    my $num_in_tree_before_add = tree_num_children($list);
 
     for (reverse @n) {
         my ($u, $t) = ($_->{url}, $_->{title});
@@ -451,8 +469,25 @@ sub update_movie_tree {
         # first in buffer is last
         $last = $u if ++$i == @n;
     }
-    # keep going
+
+    if (@n and $SCROLL_TO_TOP_ON_ADD) {
+        # necessary? seems there could be a lag when adding to tied tree
+        # magic.
+        timeout 50, sub {
+            if (tree_num_children($list) != $num_in_tree_before_add) {
+                $w_sw->left->get_vscrollbar->set_value(0);
+                return 0;
+            }
+            1;
+        };
+    }
+
     1;
+}
+
+sub tree_num_children {
+    my $treeview = shift;
+    return $treeview->get_model->iter_n_children;
 }
 
 
