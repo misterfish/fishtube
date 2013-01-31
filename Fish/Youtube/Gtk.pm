@@ -146,7 +146,7 @@ my $G = o(
     init => 0,
     last_mid_in_statusbar => -1,
 
-    # two ways to use hashes, bit different syntax
+    # two ways to use hashes, bit different possibilities
     '%img' => {},
     '%download_buf' => {},
     # mid => text
@@ -167,6 +167,7 @@ my $G = o(
     # left pane
     movie_data => [],
 
+    # auto add methods last_xxx_inc, last_xxx_dec.
     '+-last_mid' => -1,
     '+-last_idx' => -1,
 
