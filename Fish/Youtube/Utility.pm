@@ -23,6 +23,7 @@ BEGIN {
         D d D2 D3 D_QUIET D_RAW DC DC_QUIET
         randint is_int field is_num
         nice_bytes nice_bytes_join o
+        unshift_r shift_r pop_r push_r
     /;
 }
 
@@ -630,7 +631,7 @@ sub pad($$) {
 # generate anonymous object with -> accessors.
 
 # e.g.:
-# $obj = o( a=>1, b=>undef, c=>[hash => {}], d=>[array => []])
+# $obj = o( a=>1, b=>undef, %hash=>{}, hash_ref=>{}, @ary=>[], ary_ref=>[] )
 
 sub o {
     die "generate is disabled" unless _CLASS_GENERATE;
@@ -640,21 +641,15 @@ sub o {
     my (@class_def, @init);
     while (my ($k, $v) = each %stuff) {
         my $sigil;
-        my $init;
-        if (ref $v eq 'ARRAY') {
-            my $type;
-            ($type, $init) = @$v;
-            $sigil = 
-                $type eq 'hash' ? '%' :
-                $type eq 'array' ? '@' :
-                die;
+        if ($k =~ /^([%@])(.+)/) {
+            $sigil = $1;
+            $k = $2;
         }
         else {
             $sigil = '$';
-            $init = $v;
         }
         push @class_def, $k, $sigil;
-        push @init, $k,  $init;
+        push @init, $k,  $v;
     }
 
     # class anon1 => [ x => '$', y => '%', ... ];
@@ -663,5 +658,10 @@ sub o {
     my $obj = $class_name->new(@init);
     return $obj;
 }
+
+sub unshift_r { unshift @{shift @_}, @_ };
+sub push_r { push @{shift @_}, @_ };
+sub shift_r { shift @{shift @_} };
+sub pop_r { pop @{shift @_} };
 
 1;

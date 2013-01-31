@@ -132,21 +132,39 @@ my $tree_data_magic;
 
 my $W;
 
-my $Height = $HEIGHT;
-# calculated
-my $Width;
-
 my $Output_dir;
 
 my $G = o(
+
+    # inited then calculated
+    height => $HEIGHT,
+    # calculated
+    width => -1,
+
     init => 0,
     last_mid_in_statusbar => -1,
 
-    # two ways to use hashes
-    img => [hash => {}],
+    # two ways to use hashes, bit different syntax
+    '%img' => {},
+    '%download_buf' => {},
     # mid => text
     is_waiting => {},
-    download_buf => [hash => {}],
+
+    # mid => [
+    # 0 cur_size
+    # 1 '/'
+    # ]
+    size_label => {},
+
+    info_box => {},
+    cancel_images => {},
+    auto_launched => {},
+    download_successful => {},
+
+    movies_buf => [],
+    # left pane
+    movie_data => [],
+
 );
 
 my $Col = o(
@@ -154,8 +172,6 @@ my $Col = o(
     black => get_color(0,0,0,255),
 );
 
-# left pane
-my @Movie_data;
 
 {
     my %img = map {
@@ -170,26 +186,8 @@ my @Movie_data;
     $G->img(\%img);
 }
 
-
 my $Last_mid = -1;
 my $Last_idx = -1;
-
-my @Movies_buf;
-
-# mid => [
-# 0 cur_size
-# 1 '/'
-# ]
-my %Size_label;
-
-my %Info_box;
-my %Cancel_images;
-
-#^
-
-my %Auto_launched;
-
-my %Download_successful;
 
 sub init {
 
@@ -215,13 +213,13 @@ sub init {
     my $wid = $scr->get_width;
     if (! $wid) {
         warn "couldn't get screen width";
-        $Width = 800;
+        $G->width(800);
     }
     else {
-        $Width = $wid * $WID_PERC;
+        $G->width($wid * $WID_PERC);
     }
 
-    $W->set_default_size($Width, $Height);
+    $W->set_default_size($G->width, $G->height);
     $W->modify_bg('normal', $Col->white);
 
     $W->signal_connect('configure_event', \&configure_main );
@@ -260,7 +258,7 @@ sub init {
 
     $W_sl->hist->signal_connect (row_activated => sub { row_activated(@_) });
 
-    set_pane_position($Width);
+    set_pane_position($G->width);
 
     my $outer_box = Gtk2::VBox->new;
 
@@ -306,9 +304,9 @@ sub init {
     $status_table->attach($W_sb->main, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
     $status_table->attach($status_bar_right_hbox, 1, 2, 0, 1, $ooo, $ooo, 10, 10);
 
-    $W_sb->main->set_size_request($Width * .7, -1);
+    $W_sb->main->set_size_request($G->width * .7, -1);
 
-    $W_lb->od->set_size_request($Width * .3, -1);
+    $W_lb->od->set_size_request($G->width * .3, -1);
 
     $W_sb->main->set_has_resize_grip(0);
 
@@ -406,7 +404,7 @@ sub inited {
 sub set_buf {
     my ($class, $_movies_buf) = @_;
     #@Movies_buf: latest in front
-    unshift @Movies_buf, $_ for reverse @$_movies_buf;
+    unshift_r $G->movies_buf, $_ for reverse @$_movies_buf;
 }
 
 sub update_movie_tree {
@@ -416,17 +414,17 @@ sub update_movie_tree {
 
     my $i = 0;
 
-    @Movies_buf or return 1;
+    $G->movies_buf or return 1;
 
     # single value of {} means History returned exactly 0 entries
     {
-        my $m = shift @Movies_buf;
+        my $m = shift_r $G->movies_buf;
         if (! %$m) {
             @$tree_data_magic = "No movies -- first browse somewhere in Firefox.";
             return 1;
         }
         else {
-            unshift @Movies_buf, $m;
+            unshift_r $G->movies_buf, $m;
         }
     }
 
@@ -437,8 +435,8 @@ sub update_movie_tree {
 
     #@Movies_buf: latest in front
 
-    my @m = @Movies_buf;
-    @Movies_buf = ();
+    my @m = list $G->movies_buf;
+    $G->movies_buf([]);
 
     my @n;
 
@@ -462,7 +460,7 @@ sub update_movie_tree {
 
         $Last_mid++;
         unshift @$tree_data_magic, $t;
-        unshift @Movie_data, { mid => $Last_mid, url => $u, title => $t};
+        unshift_r $G->movie_data, { mid => $Last_mid, url => $u, title => $t};
 
         # first in buffer is last
         $last = $u if ++$i == @n;
@@ -520,7 +518,7 @@ sub row_activated {
     my ($obj, $path, $column) = @_;
 
     my $row_idx = $path->get_indices;
-    my $d = $Movie_data[$row_idx] or die;
+    my $d = $G->movie_data->[$row_idx] or die;
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
     start_download($u, $t, $mid);
@@ -539,8 +537,8 @@ sub start_download {
         return;
     }
 
-    $Download_successful{$mid} = 0;
-    $Auto_launched{$mid} = 0;
+    $G->download_successful->{$mid} = 0;
+    $G->auto_launched->{$mid} = 0;
 
     my $box;
 
@@ -625,7 +623,7 @@ sub start_download {
     $W_ly->right->show_all;
 
     if ($first) {
-        set_pane_position($Width / 2);
+        set_pane_position($G->width / 2);
         $first = 0;
     }
 
@@ -738,9 +736,9 @@ sub file_progress {
     my $cur_size = $s->size;
     $d->prog($cur_size);
 
-    if (!$Auto_launched{$mid} and ! $simulate ) {
+    if (!$G->auto_launched->{$mid} and ! $simulate ) {
         if ($auto_start_watching and $cur_size / $size * 100 > $AUTO_WATCH_PERC) {
-            $Auto_launched{$mid} = 1;
+            $G->auto_launched->{$mid} = 1;
             main::watch_movie($file);
         }
     }
@@ -838,11 +836,11 @@ sub poll_downloads {
 
     my $l2 = $L->new;
     $l2->modify_fg('normal', $c2);
-    $Size_label{$mid}[0] = $l2;
+    $G->size_label->{$mid}[0] = $l2;
 
     my $l3 = $L->new('/', { size => 'small' });
     $l3->modify_fg('normal', $c3);
-    $Size_label{$mid}[1] = $l3;
+    $G->size_label->{$mid}[1] = $l3;
 
     my $l4 = $L->new(nice_bytes_join $size, { size => 'small' });
     $l4->modify_fg('normal', $c4);
@@ -878,7 +876,7 @@ sub poll_downloads {
 
     $_->modify_bg('normal', $Col->white) for $l1, $l2, $l3, $l4, $vb, $eb, $hb, $eb_im;
 
-    $Info_box{$mid} = $eb;
+    $G->info_box->{$mid} = $eb;
 
     $eb->add($vb);
 
@@ -893,9 +891,9 @@ sub poll_downloads {
     update_scroll_area(+1);
     $W_ly->right->show_all;
 
-    set_cursor_timeout($Info_box{$mid}, 'hand2');
+    set_cursor_timeout($G->info_box->{$mid}, 'hand2');
 
-    $Cancel_images{$mid} = $im;
+    $G->cancel_images->{$mid} = $im;
 
     $eb_im->signal_connect('button-press-event', sub {
         cancel_download($mid);
@@ -941,7 +939,7 @@ sub poll_downloads {
             return 0;
         }
 
-        my $l = $Size_label{$mid}[0];
+        my $l = $G->size_label->{$mid}[0];
         $l and $l->set_label(nice_bytes_join $p, { size => 'small' });
 
         my $perc = $p / $size * 100;
@@ -991,12 +989,12 @@ sub configure_main {
         $first = 0;
     }
     else {
-        return if $ew == $Width and $eh == $Height;
+        return if $ew == $G->width and $eh == $G->height;
         #D 'configuring', 'width', $ew, 'height', $eh;
     }
 
-    $Width = $ew;
-    $Height = $eh;
+    $G->width($ew);
+    $G->height($eh);
 
     # make new pixmaps for all current downloads
     $D->make_pixmaps;
@@ -1094,8 +1092,8 @@ sub download_stopped {
 sub download_finished {
     my ($mid) = @_;
     download_stopped($mid);
-    $_->destroy, undef $_ for $Cancel_images{$mid}, list $Size_label{$mid};
-    $Download_successful{$mid} = 1;
+    $_->destroy, undef $_ for $G->cancel_images->{$mid}, list $G->size_label->{$mid};
+    $G->download_successful->{$mid} = 1;
 }
 
 sub cancel_download {
@@ -1118,13 +1116,13 @@ sub cancel_download {
         my $j = $d->idx;
         if ($j > $idx) {
             $d->idx_dec;
-            my $box = $Info_box{$d->id};
+            my $box = $G->info_box->{$d->id};
             # shift up
             $W_ly->right->move($box, $INFO_X, $RIGHT_PADDING_TOP + $d->idx * ($HP + $RIGHT_SPACING_V));
         }
     }
-    my $Info_box = delete $Info_box{$mid};
-    $Info_box->destroy;
+    my $ib = delete $G->info_box->{$mid};
+    $ib->destroy;
 
     update_scroll_area(-1);
 }
@@ -1218,7 +1216,7 @@ sub inject_movie_dialog {
 
     my $i = Gtk2::Entry->new;
     #$i->set_max_length(80);
-    $i->set_size_request(int $Width / 2,-1);
+    $i->set_size_request(int $G->width / 2,-1);
 
 
     $dialog->add_action_widget($i, 'apply');
@@ -1410,7 +1408,7 @@ sub set_cursor_timeout {
 sub simulate {
     my $SIM_TMP = main::get_tmp_dir();
     my $sim_idx = 0;
-    set_pane_position($Width / 2);
+    set_pane_position($G->width / 2);
     timeout(1000, sub {
         ++$Last_mid;
         my $mid = $Last_mid;
