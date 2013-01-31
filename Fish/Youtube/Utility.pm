@@ -628,18 +628,39 @@ sub pad($$) {
 }
 
 # generate anonymous object with -> accessors.
-# all members must be scalars for now.
+
+# e.g.:
+# $obj = o( a=>1, b=>undef, c=>[hash => {}], d=>[array => []])
+
 sub o {
     die "generate is disabled" unless _CLASS_GENERATE;
     state $idx = 0;
     my %stuff = @_;
     my $class_name = 'anon' . ++$idx;
-    my @class_def = map { $_ => '$' } keys %stuff;
+    my (@class_def, @init);
+    while (my ($k, $v) = each %stuff) {
+        my $sigil;
+        my $init;
+        if (ref $v eq 'ARRAY') {
+            my $type;
+            ($type, $init) = @$v;
+            $sigil = 
+                $type eq 'hash' ? '%' :
+                $type eq 'array' ? '@' :
+                die;
+        }
+        else {
+            $sigil = '$';
+            $init = $v;
+        }
+        push @class_def, $k, $sigil;
+        push @init, $k,  $init;
+    }
 
-    # class anon1 => [ x => '$', y => '$', ... ];
+    # class anon1 => [ x => '$', y => '%', ... ];
     class $class_name => [ @class_def ];
 
-    my $obj = $class_name->new(%stuff);
+    my $obj = $class_name->new(@init);
     return $obj;
 }
 

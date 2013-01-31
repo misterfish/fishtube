@@ -89,6 +89,11 @@ my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
 my $Scrollarea_height = $RIGHT_PADDING_TOP;
 
 # o() creates anonymous objects with -> accessors
+# hashes have:
+# set: $obj->h($k, $v)
+# get: $obj->h($k)
+# delete: $obj->delete_h($k)
+# $obj->h_keys, $obj->h_values
 
 my $W_sw = o(
     left => Gtk2::ScrolledWindow->new,
@@ -101,7 +106,7 @@ my $W_hp = o(
 );
 
 my $W_im = o(
-    prog => Gtk2::Image->new,
+    #prog => Gtk2::Image->new,
 );
 
 my $W_sl = o(
@@ -136,6 +141,12 @@ my $Output_dir;
 my $G = o(
     init => 0,
     last_mid_in_statusbar => -1,
+
+    # two ways to use hashes
+    img => [hash => {}],
+    # mid => text
+    is_waiting => {},
+    download_buf => [hash => {}],
 );
 
 my $Col = o(
@@ -146,19 +157,19 @@ my $Col = o(
 # left pane
 my @Movie_data;
 
-my %Img = map {
+{
+    my %img = map {
 
-    my $i = "$IMAGES_DIR/$IMG{$_}";
-    -r $i or error "Image", Y $i, "doesn't exist or not readable.";
+        my $i = "$IMAGES_DIR/$IMG{$_}";
+        -r $i or error "Image", Y $i, "doesn't exist or not readable.";
 
-    $_ => $i,
+        $_ => $i,
 
-} qw/ add cancel cancel_hover /;
+    } qw/ add cancel cancel_hover /;
 
-# mid => text
-my %Is_waiting;
+    $G->img(\%img);
+}
 
-my %Download_buf;
 
 my $Last_mid = -1;
 my $Last_idx = -1;
@@ -227,7 +238,7 @@ sub init {
     $l->add($lwf);
 
     my $button_add = Gtk2::EventBox->new;
-    $button_add->add(Gtk2::Image->new_from_file($Img{add}));
+    $button_add->add(Gtk2::Image->new_from_file($G->img('add')));
     $button_add->signal_connect('button-press-event', sub {
         my $response = inject_movie();
     });
@@ -538,7 +549,7 @@ sub start_download {
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
     $wait_s .= "' ";
-    $Is_waiting{$mid} = $wait_s;
+    $G->is_waiting->{$mid} = $wait_s;
 
     $G->last_mid_in_statusbar($mid);
     $W_sb->main->push($mid, $wait_s);
@@ -602,12 +613,12 @@ sub start_download {
     timeout(300, sub {
         my $text;
         return 0 unless $G->last_mid_in_statusbar == $mid;
-        return 0 unless $text = $Is_waiting{$mid};
+        return 0 unless $text = $G->is_waiting->{$mid};
 
         $text .= '.';
         $W_sb->main->pop($mid);
         $W_sb->main->push($mid, $text);
-        $Is_waiting{$mid} = $text;
+        $G->is_waiting->{$mid} = $text;
         1;
     });
 
@@ -765,34 +776,34 @@ sub add_download {
 
     # downloads added faster than poll_downloads can grab them (shouldn't
     # happen)
-    warn "download buf not empty" if %Download_buf;
+    warn "download buf not empty" if $G->download_buf;
 
-    %Download_buf = (
+    $G->download_buf({
         idx => ++$Last_idx,
         mid => $mid,
         size => $size,
         title => $title,
         of => $of,
         pid => $pid,
-    );
+    });
 }
 
 sub poll_downloads {
 
-    %Download_buf or return 1;
+    my %db = $G->download_buf or return 1;
 
     # start new download
 
-    my $size = $Download_buf{size};
-    my $title = $Download_buf{title};
-    my $idx = $Download_buf{idx};
-    my $of = $Download_buf{of};
-    my $pid = $Download_buf{pid};
+    my $size = $db{size};
+    my $title = $db{title};
+    my $idx = $db{idx};
+    my $of = $db{of};
+    my $pid = $db{pid};
 
     my $pixmap = make_pixmap();
     clear_pixmap($pixmap);
 
-    my $mid = $Download_buf{mid};
+    my $mid = $db{mid};
 
     my $d = $D->new(
         # main id = mid
@@ -806,7 +817,7 @@ sub poll_downloads {
         pixmap  => $pixmap,
     );
 
-    %Download_buf = ();
+    $G->download_buf({});
 
     my $anarchy = Fish::Youtube::Anarchy->new(
         width => $WP,
@@ -836,21 +847,23 @@ sub poll_downloads {
     my $l4 = $L->new(nice_bytes_join $size, { size => 'small' });
     $l4->modify_fg('normal', $c4);
 
-    my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($Img{cancel});
-    my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($Img{cancel_hover});
-    $W_im->prog->set_from_pixbuf($pix_normal);
+    my $im = Gtk2::Image->new;
+
+    my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($G->img('cancel'));
+    my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($G->img('cancel_hover'));
+    $im->set_from_pixbuf($pix_normal);
 
     my $eb_im = Gtk2::EventBox->new;
-    $eb_im->add($W_im->prog);
+    $eb_im->add($im);
     $eb_im->modify_bg('normal', $Col->black);
-    $W_im->prog->modify_bg('normal', $Col->black);
+    $im->modify_bg('normal', $Col->black);
 
     $eb_im->signal_connect('enter-notify-event', sub {
-        $W_im->prog->set_from_pixbuf($pix_hover);
+        $im->set_from_pixbuf($pix_hover);
     });
 
     $eb_im->signal_connect('leave-notify-event', sub {
-        $W_im->prog->set_from_pixbuf($pix_normal);
+        $im->set_from_pixbuf($pix_normal);
     });
 
     $vb->add($l1);
@@ -882,7 +895,7 @@ sub poll_downloads {
 
     set_cursor_timeout($Info_box{$mid}, 'hand2');
 
-    $Cancel_images{$mid} = $W_im->prog;
+    $Cancel_images{$mid} = $im;
 
     $eb_im->signal_connect('button-press-event', sub {
         cancel_download($mid);
@@ -1247,7 +1260,7 @@ sub remove_wait_label {
     my ($mid) = @_;
     # my $wait_l = delete $wait_l{$mid} or warn;
     #$wait_l->{l}->destroy;
-    $Is_waiting{$mid} = 0;
+    $G->is_waiting->{$mid} = 0;
     $W_sb->main->pop($mid);
 }
 
