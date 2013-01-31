@@ -15,16 +15,7 @@ use Gtk2::SimpleList;
 
 use Gtk2::Pango;
 
-# make simple singleton classes for keeping global space neat and also gives
-# us -> accessors
-use Class::Generate 'class';
-
 die "Glib::Object thread safety failed" unless Glib::Object->set_threadsafe (1);
-
-use Fish::Youtube::Utility;
-use Fish::Youtube::Download;
-
-my $D = 'Fish::Youtube::Download';
 
 use Time::HiRes 'sleep';
 
@@ -33,13 +24,20 @@ use File::Basename;
 
 use Math::Trig ':pi';
 
+use Fish::Gtk2::Label;
+my $L = 'Fish::Gtk2::Label';
+
+use Fish::Youtube::Utility;
+use Fish::Youtube::Download;
+use Fish::Youtube::Anarchy;
+
+my $D = 'Fish::Youtube::Download';
+
 #%
 
 # make up a unique id
 use constant STATUS_OD => 100;
 use constant STATUS_MISC => 101;
-
-use File::Slurp;
 
 sub timeout;
 
@@ -48,33 +46,6 @@ sub error;
 sub war;
 sub mess;
 sub max;
-
-my $pane_pos;
-
-my $inited;
-
-my $im;
-
-my $w_sw = spawn_obj(
-    left => Gtk2::ScrolledWindow->new,
-    right => Gtk2::ScrolledWindow->new,
-);
-
-# all scalar members for now
-sub spawn_obj {
-    state $idx = 0;
-    my %stuff = @_;
-    my $class_name = 'anon' . ++$idx;
-    my @class_def = map { $_ => '$' } keys %stuff;
-
-    # class anon1 => [ x => '$', y => '$', ... ];
-    class $class_name => [ @class_def ];
-
-    my $obj = $class_name->new(%stuff);
-    return $obj;
-}
-
-my $tree_data_magic;
 
 my $IMAGES_DIR = $main::bin_dir . '/../images';
 
@@ -87,16 +58,7 @@ my %IMG = (
     cancel_hover        => 'cancel-20-hover.png',
 );
 
-my %Img;
-for (qw/ add cancel cancel_hover /) {
-    my $i = "$IMAGES_DIR/$IMG{$_}";
-    -r $i or error "Image", Y $i, "doesn't exist or not readable.";
-    $Img{$_} = $i;
-}
-
-my $Height = 300;
-# calculated
-my $Width;
+my $HEIGHT = 300;
 
 my $WID_PERC = .75;
 
@@ -113,71 +75,110 @@ my $auto_start_watching = 1;
 
 my $RIGHT_SPACING_V = 15;
 
-my $Scrollarea_height = $RIGHT_PADDING_TOP;
-
 # separation proportion
 my $PROP = .5;
 
-my $w;
-my $list;
-my $hp;
-
-my $output_dir;
-
-my $layout;
-#my $wait_box;
 my $STATUS_PROP = .7;
-my $status_bar;
-my $status_bar_dir;
 
-use Fish::Youtube::Anarchy;
+my $SCROLL_TO_TOP_ON_ADD = 1;
+
+my $OUTPUT_DIR_TXT = "Output dir:";
+
+my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
+
+my $Scrollarea_height = $RIGHT_PADDING_TOP;
+
+# o() creates anonymous objects with -> accessors
+
+my $W_sw = o(
+    left => Gtk2::ScrolledWindow->new,
+    right => Gtk2::ScrolledWindow->new,
+);
+
+my $W_hp = o(
+    main => Gtk2::HPaned->new,
+    main_pos => undef,
+);
+
+my $W_im = o(
+    prog => Gtk2::Image->new,
+);
+
+my $W_sl = o(
+    # is a Treeview
+    hist => Gtk2::SimpleList->new ( 
+        ''    => 'text',
+    ),
+);
+
+my $W_ly = o(
+    right => Gtk2::Layout->new,
+);
+
+my $W_lb = o(
+    od => Fish::Gtk2::Label->new,
+);
+
+my $W_sb = o(
+    main => Gtk2::Statusbar->new,
+);
+
+my $tree_data_magic;
+
+my $W;
+
+my $Height = $HEIGHT;
+# calculated
+my $Width;
+
+my $Output_dir;
+
+my $G = o(
+    init => 0,
+    last_mid_in_statusbar => -1,
+);
+
+my $Col = o(
+    white => get_color(255,255,255,255),
+    black => get_color(0,0,0,255),
+);
 
 # left pane
-my @movie_data;
+my @Movie_data;
+
+my %Img = map {
+
+    my $i = "$IMAGES_DIR/$IMG{$_}";
+    -r $i or error "Image", Y $i, "doesn't exist or not readable.";
+
+    $_ => $i,
+
+} qw/ add cancel cancel_hover /;
 
 # mid => text
-my %is_waiting;
+my %Is_waiting;
 
-my %download_buf;
+my %Download_buf;
 
-my $pixmap_base;
+my $Last_mid = -1;
+my $Last_idx = -1;
 
-# right
-my $labels_box;
-
-my $last_mid = -1;
-my $last_idx = -1;
-
-my @movies_buf;
-
-my $gc;
+my @Movies_buf;
 
 # mid => [
 # 0 cur_size
 # 1 '/'
 # ]
-my %size_label;
+my %Size_label;
 
-my %info_box;
-my %cancel_images;
+my %Info_box;
+my %Cancel_images;
 
 #^
 
-my $SCROLL_TO_TOP_ON_ADD = 1;
+my %Auto_launched;
 
-my %auto_launched;
-
-my $OUTPUT_DIR_TXT = "Output dir:";
-
-my $last_mid_in_statusbar;
-my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
-
-my %download_successful;
-
-#my %wait_l;
-
-my $white = get_color(255,255,255,255);
-my $black = get_color(0,0,0,255);
+my %Download_successful;
 
 sub init {
 
@@ -197,9 +198,9 @@ sub init {
     # hash of name => dir
     my $profile_ask = $opt->{profile_ask};
 
-    $w = Gtk2::Window->new('toplevel');
+    $W = Gtk2::Window->new('toplevel');
 
-    my $scr = $w->get_screen;
+    my $scr = $W->get_screen;
     my $wid = $scr->get_width;
     if (! $wid) {
         warn "couldn't get screen width";
@@ -209,11 +210,11 @@ sub init {
         $Width = $wid * $WID_PERC;
     }
 
-    $w->set_default_size($Width, $Height);
-    $w->modify_bg('normal', $white);
+    $W->set_default_size($Width, $Height);
+    $W->modify_bg('normal', $Col->white);
 
-    $w->signal_connect('configure_event', \&configure_main );
-    $w->signal_connect('destroy', sub { $w->destroy; exit 0 } );
+    $W->signal_connect('configure_event', \&configure_main );
+    $W->signal_connect('destroy', sub { $W->destroy; exit 0 } );
 
     my $l = Gtk2::VBox->new;
     
@@ -222,7 +223,7 @@ sub init {
     $l->pack_start($l_buttons, 0, 0, 10);
 
     my $lwf = Gtk2::Frame->new;
-    $lwf->add($w_sw->left);
+    $lwf->add($W_sw->left);
     $l->add($lwf);
 
     my $button_add = Gtk2::EventBox->new;
@@ -230,59 +231,46 @@ sub init {
     $button_add->signal_connect('button-press-event', sub {
         my $response = inject_movie();
     });
-    $button_add->modify_bg('normal', $white);
+    $button_add->modify_bg('normal', $Col->white);
 
     set_cursor_timeout($button_add, 'hand2');
 
     $l_buttons->pack_start($button_add, 0, 0, 10);
 
-    $w_sw->left->set_policy('never', 'automatic');
+    $W_sw->left->set_policy('never', 'automatic');
 
-    # is a TreeView
-    $list = Gtk2::SimpleList->new ( 
-        ''    => 'text',
-    );
+    $W_sl->hist->set_headers_visible(0);
 
-    $list->set_headers_visible(0);
-
-    $w_sw->left->add($list);
-    $w_sw->left->show_all;
+    $W_sw->left->add($W_sl->hist);
+    $W_sw->left->show_all;
 
     # tree_data_magic is tied
-    $tree_data_magic = $list->{data};
+    $tree_data_magic = $W_sl->hist->{data};
 
-    $list->signal_connect (row_activated => sub { row_activated(@_) });
-
-    $hp = Gtk2::HPaned->new;
+    $W_sl->hist->signal_connect (row_activated => sub { row_activated(@_) });
 
     set_pane_position($Width);
 
     my $outer_box = Gtk2::VBox->new;
 
-    $status_bar = Gtk2::Statusbar->new;
-    #$status_bar_dir = Gtk2::Statusbar->new;
-    $status_bar_dir = Gtk2::Label->new;
-
     # want to flush label right but doesn't work
     my $status_bar_dir_box = Gtk2::EventBox->new;
-    $status_bar_dir_box->modify_bg('normal', $white);
-    #my $status_bar_dir_box_al = Gtk2::Alignment->new(1, 0, 0, 0);
+    $status_bar_dir_box->modify_bg('normal', $Col->white);
 
-    #$status_bar_dir_box_al->add($status_bar_dir_box);
-    $status_bar_dir_box->add($status_bar_dir);
+    $status_bar_dir_box->add($W_lb->od);
     set_cursor_timeout($status_bar_dir_box, 'hand2');
 
     $status_bar_dir_box->signal_connect('button-press-event', sub {
         do_output_dir_dialog();
     });
 
-    $status_bar_dir->modify_bg('normal', $black);
+    $W_lb->od->modify_bg('normal', $Col->black);
 
     # expand, fill, padding
     # fill has no effect if expand is 0.
-    $outer_box->pack_start($hp, 1, 1, 0);
+    $outer_box->pack_start($W_hp->main, 1, 1, 0);
 
-    set_label($status_bar_dir, "$OUTPUT_DIR_TXT", { size => 'small', color => 'red'});
+    $W_lb->od->set_label("$OUTPUT_DIR_TXT", { size => 'small', color => 'red'});
 
     my $auto_start_cb = Gtk2::CheckButton->new('');
     $auto_start_cb->set_active(1);
@@ -293,7 +281,7 @@ sub init {
     });
     {
         my $l = ($auto_start_cb->get_children)[0];
-        set_label($l, "Auto start ($AUTO_WATCH_PERC%)", { size => 'small' });
+        $L->set_label($l, "Auto start ($AUTO_WATCH_PERC%)", { size => 'small' });
     }
     my $status_bar_right_hbox = Gtk2::HBox->new(0);
     $status_bar_right_hbox->pack_start($auto_start_cb, 0, 0, 10);
@@ -304,14 +292,14 @@ sub init {
     # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
     my $oo = [qw/ expand shrink fill /];
     my $ooo = 'shrink';
-    $status_table->attach($status_bar, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
+    $status_table->attach($W_sb->main, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
     $status_table->attach($status_bar_right_hbox, 1, 2, 0, 1, $ooo, $ooo, 10, 10);
 
-    $status_bar->set_size_request($Width * .7, -1);
+    $W_sb->main->set_size_request($Width * .7, -1);
 
-    $status_bar_dir->set_size_request($Width * .3, -1);
+    $W_lb->od->set_size_request($Width * .3, -1);
 
-    $_->set_has_resize_grip(0) for $status_bar;
+    $W_sb->main->set_has_resize_grip(0);
 
     $outer_box->pack_end($status_table, 0, 0, 10);
 
@@ -323,32 +311,31 @@ sub init {
         #$outer_box->add($b);
     }
 
-    $w->add($outer_box);
+    $W->add($outer_box);
 
-    $w_sw->right->set_policy('never', 'automatic');
+    $W_sw->right->set_policy('never', 'automatic');
 
-    $hp->child2_shrink(1);
+    $W_hp->main->child2_shrink(1);
 
-    $hp->pack1($l, 0, 1);
+    $W_hp->main->pack1($l, 0, 1);
 
-    $layout = Gtk2::Layout->new;
-    $layout->signal_connect('expose_event', \&expose_drawable );
-    $layout->modify_bg('normal', $white);
+    $W_ly->right->signal_connect('expose_event', \&expose_drawable );
+    $W_ly->right->modify_bg('normal', $Col->white);
 
-    $w_sw->right->add($layout);
+    $W_sw->right->add($W_ly->right);
 
-    $hp->pack2($w_sw->right, 0, 1);
+    $W_hp->main->pack2($W_sw->right, 0, 1);
 
-    $w->show_all;
+    $W->show_all;
 
-    $w->set_app_paintable(1);
+    $W->set_app_paintable(1);
 
     # why ever set to 0?
     #$w->set_double_buffered(0);
 
     # pane moved
-    $hp->get_child1->signal_connect('size_allocate', sub { 
-        $pane_pos = $hp->get_position;
+    $W_hp->main->get_child1->signal_connect('size_allocate', sub { 
+        $W_hp->main_pos( $W_hp->main->get_position );
         redraw();
     });
 
@@ -378,7 +365,7 @@ my $SIMULATE = 0;
         };
     }
 
-    push @init_chain, sub { $inited = 1 };
+    push @init_chain, sub { $G->init(1) };
 
     my $chain = sub {
 
@@ -402,13 +389,13 @@ my $SIMULATE = 0;
 }
 
 sub inited {
-    return $inited;
+    return $G->init;
 }
 
 sub set_buf {
     my ($class, $_movies_buf) = @_;
-    #@movies_buf: latest in front
-    unshift @movies_buf, $_ for reverse @$_movies_buf;
+    #@Movies_buf: latest in front
+    unshift @Movies_buf, $_ for reverse @$_movies_buf;
 }
 
 sub update_movie_tree {
@@ -418,17 +405,17 @@ sub update_movie_tree {
 
     my $i = 0;
 
-    @movies_buf or return 1;
+    @Movies_buf or return 1;
 
     # single value of {} means History returned exactly 0 entries
     {
-        my $m = shift @movies_buf;
+        my $m = shift @Movies_buf;
         if (! %$m) {
             @$tree_data_magic = "No movies -- first browse somewhere in Firefox.";
             return 1;
         }
         else {
-            unshift @movies_buf, $m;
+            unshift @Movies_buf, $m;
         }
     }
 
@@ -437,10 +424,10 @@ sub update_movie_tree {
         $first = 0;
     }
 
-    #@movies_buf: latest in front
+    #@Movies_buf: latest in front
 
-    my @m = @movies_buf;
-    @movies_buf = ();
+    my @m = @Movies_buf;
+    @Movies_buf = ();
 
     my @n;
 
@@ -455,16 +442,16 @@ sub update_movie_tree {
         @n = @m;
     }
 
-    my $num_in_tree_before_add = tree_num_children($list);
+    my $num_in_tree_before_add = tree_num_children($W_sl->hist);
 
     for (reverse @n) {
         my ($u, $t) = ($_->{url}, $_->{title});
 
         $t =~ s/ \s* - \s* youtube \s* $//xi;
 
-        $last_mid++;
+        $Last_mid++;
         unshift @$tree_data_magic, $t;
-        unshift @movie_data, { mid => $last_mid, url => $u, title => $t};
+        unshift @Movie_data, { mid => $Last_mid, url => $u, title => $t};
 
         # first in buffer is last
         $last = $u if ++$i == @n;
@@ -474,8 +461,8 @@ sub update_movie_tree {
         # necessary? seems there could be a lag when adding to tied tree
         # magic.
         timeout 50, sub {
-            if (tree_num_children($list) != $num_in_tree_before_add) {
-                $w_sw->left->get_vscrollbar->set_value(0);
+            if (tree_num_children($W_sl->hist) != $num_in_tree_before_add) {
+                $W_sw->left->get_vscrollbar->set_value(0);
                 return 0;
             }
             1;
@@ -522,7 +509,7 @@ sub row_activated {
     my ($obj, $path, $column) = @_;
 
     my $row_idx = $path->get_indices;
-    my $d = $movie_data[$row_idx] or die;
+    my $d = $Movie_data[$row_idx] or die;
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
     start_download($u, $t, $mid);
@@ -534,15 +521,15 @@ sub start_download {
     # already downloaded
     return if $D->exists($mid);
     
-    if (! $output_dir) {
+    if (! $Output_dir) {
         # remove_all doesn't seem to work.
-        $status_bar->pop(STATUS_OD);
-        $status_bar->push(STATUS_OD, 'Choose output dir first.');
+        $W_sb->main->pop(STATUS_OD);
+        $W_sb->main->push(STATUS_OD, 'Choose output dir first.');
         return;
     }
 
-    $download_successful{$mid} = 0;
-    $auto_launched{$mid} = 0;
+    $Download_successful{$mid} = 0;
+    $Auto_launched{$mid} = 0;
 
     my $box;
 
@@ -551,10 +538,10 @@ sub start_download {
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
     $wait_s .= "' ";
-    $is_waiting{$mid} = $wait_s;
+    $Is_waiting{$mid} = $wait_s;
 
-    $last_mid_in_statusbar = $mid;
-    $status_bar->push($mid, $wait_s);
+    $G->last_mid_in_statusbar($mid);
+    $W_sb->main->push($mid, $wait_s);
 
     state $first = 1;
 
@@ -581,10 +568,10 @@ sub start_download {
         $t =~ s|\\|-|g;
         $t =~ s/"/'/g;
 
-        $of = "$output_dir/$t.flv";
+        $of = "$Output_dir/$t.flv";
 
         if (-r $of) {
-            my $dialog = Gtk2::MessageDialog->new ($w,
+            my $dialog = Gtk2::MessageDialog->new ($W,
                 'modal',
                 'question', # message type
                 'yes-no', # which set of buttons?
@@ -614,17 +601,17 @@ sub start_download {
     # add puntjes to waiting msg
     timeout(300, sub {
         my $text;
-        return 0 unless $last_mid_in_statusbar == $mid;
-        return 0 unless $text = $is_waiting{$mid};
+        return 0 unless $G->last_mid_in_statusbar == $mid;
+        return 0 unless $text = $Is_waiting{$mid};
 
         $text .= '.';
-        $status_bar->pop($mid);
-        $status_bar->push($mid, $text);
-        $is_waiting{$mid} = $text;
+        $W_sb->main->pop($mid);
+        $W_sb->main->push($mid, $text);
+        $Is_waiting{$mid} = $text;
         1;
     });
 
-    $layout->show_all;
+    $W_ly->right->show_all;
 
     if ($first) {
         set_pane_position($Width / 2);
@@ -632,7 +619,7 @@ sub start_download {
     }
 
     # make some of these vars internal to main todo
-    my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $output_dir, $force_get);
+    my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $Output_dir, $force_get);
 
     if (!$pid) {
         # subproc failed.
@@ -740,9 +727,9 @@ sub file_progress {
     my $cur_size = $s->size;
     $d->prog($cur_size);
 
-    if (!$auto_launched{$mid} and ! $simulate ) {
+    if (!$Auto_launched{$mid} and ! $simulate ) {
         if ($auto_start_watching and $cur_size / $size * 100 > $AUTO_WATCH_PERC) {
-            $auto_launched{$mid} = 1;
+            $Auto_launched{$mid} = 1;
             main::watch_movie($file);
         }
     }
@@ -778,10 +765,10 @@ sub add_download {
 
     # downloads added faster than poll_downloads can grab them (shouldn't
     # happen)
-    warn "download buf not empty" if %download_buf;
+    warn "download buf not empty" if %Download_buf;
 
-    %download_buf = (
-        idx => ++$last_idx,
+    %Download_buf = (
+        idx => ++$Last_idx,
         mid => $mid,
         size => $size,
         title => $title,
@@ -792,20 +779,20 @@ sub add_download {
 
 sub poll_downloads {
 
-    %download_buf or return 1;
+    %Download_buf or return 1;
 
     # start new download
 
-    my $size = $download_buf{size};
-    my $title = $download_buf{title};
-    my $idx = $download_buf{idx};
-    my $of = $download_buf{of};
-    my $pid = $download_buf{pid};
+    my $size = $Download_buf{size};
+    my $title = $Download_buf{title};
+    my $idx = $Download_buf{idx};
+    my $of = $Download_buf{of};
+    my $pid = $Download_buf{pid};
 
     my $pixmap = make_pixmap();
     clear_pixmap($pixmap);
 
-    my $mid = $download_buf{mid};
+    my $mid = $Download_buf{mid};
 
     my $d = $D->new(
         # main id = mid
@@ -819,7 +806,7 @@ sub poll_downloads {
         pixmap  => $pixmap,
     );
 
-    %download_buf = ();
+    %Download_buf = ();
 
     my $anarchy = Fish::Youtube::Anarchy->new(
         width => $WP,
@@ -830,45 +817,40 @@ sub poll_downloads {
     my $vb = Gtk2::VBox->new;
     my $eb = Gtk2::EventBox->new;
 
-    my $c1 = $black;
+    my $c1 = $Col->black;
     my $c2 = get_color(100,100,33,255);
     my $c3 = $c2;
     my $c4 = $c1;
 
-    my $l1 = Gtk2::Label->new;
-    set_label($l1, $title, { size => 'small' });
+    my $l1 = $L->new($title, { size => 'small' });
     $l1->modify_fg('normal', $c1);
 
-    my $l2 = Gtk2::Label->new;
+    my $l2 = $L->new;
     $l2->modify_fg('normal', $c2);
-    $size_label{$mid}[0] = $l2;
+    $Size_label{$mid}[0] = $l2;
 
-    my $l3 = Gtk2::Label->new;
+    my $l3 = $L->new('/', { size => 'small' });
     $l3->modify_fg('normal', $c3);
-    set_label($l3, '/', { size => 'small' });
-    $size_label{$mid}[1] = $l3;
+    $Size_label{$mid}[1] = $l3;
 
-    my $l4 = Gtk2::Label->new;
-    set_label($l4, nice_bytes_join $size, { size => 'small' });
+    my $l4 = $L->new(nice_bytes_join $size, { size => 'small' });
     $l4->modify_fg('normal', $c4);
-
-    my $im = Gtk2::Image->new;
 
     my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($Img{cancel});
     my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($Img{cancel_hover});
-    $im->set_from_pixbuf($pix_normal);
+    $W_im->prog->set_from_pixbuf($pix_normal);
 
     my $eb_im = Gtk2::EventBox->new;
-    $eb_im->add($im);
-    $eb_im->modify_bg('normal', $black);
-    $im->modify_bg('normal', $black);
+    $eb_im->add($W_im->prog);
+    $eb_im->modify_bg('normal', $Col->black);
+    $W_im->prog->modify_bg('normal', $Col->black);
 
     $eb_im->signal_connect('enter-notify-event', sub {
-        $im->set_from_pixbuf($pix_hover);
+        $W_im->prog->set_from_pixbuf($pix_hover);
     });
 
     $eb_im->signal_connect('leave-notify-event', sub {
-        $im->set_from_pixbuf($pix_normal);
+        $W_im->prog->set_from_pixbuf($pix_normal);
     });
 
     $vb->add($l1);
@@ -881,26 +863,26 @@ sub poll_downloads {
     $vb->add($hb_al);
     $hb->pack_start($eb_im, 0, 0, 20);
 
-    $_->modify_bg('normal', $white) for $l1, $l2, $l3, $l4, $vb, $eb, $hb, $eb_im;
+    $_->modify_bg('normal', $Col->white) for $l1, $l2, $l3, $l4, $vb, $eb, $hb, $eb_im;
 
-    $info_box{$mid} = $eb;
+    $Info_box{$mid} = $eb;
 
     $eb->add($vb);
 
     remove_wait_label($mid);
 
-    $layout->put($eb, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($HP + $RIGHT_SPACING_V));
+    $W_ly->right->put($eb, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($HP + $RIGHT_SPACING_V));
 
     $eb->signal_connect('button-press-event', sub {
         main::watch_movie($of);
     });
 
     update_scroll_area(+1);
-    $layout->show_all;
+    $W_ly->right->show_all;
 
-    set_cursor_timeout($info_box{$mid}, 'hand2');
+    set_cursor_timeout($Info_box{$mid}, 'hand2');
 
-    $cancel_images{$mid} = $im;
+    $Cancel_images{$mid} = $W_im->prog;
 
     $eb_im->signal_connect('button-press-event', sub {
         cancel_download($mid);
@@ -946,8 +928,8 @@ sub poll_downloads {
             return 0;
         }
 
-        my $l = $size_label{$mid}[0];
-        $l and set_label($l, nice_bytes_join $p, { size => 'small' });
+        my $l = $Size_label{$mid}[0];
+        $l and $l->set_label(nice_bytes_join $p, { size => 'small' });
 
         my $perc = $p / $size * 100;
         if ($last != $p) {
@@ -1010,7 +992,7 @@ sub configure_main {
 
 sub make_pixmap {
     my ($pw, $ph) = ($WP, $HP);
-    my $pixmap = Gtk2::Gdk::Pixmap->new($w->window, $pw, $ph, 24);
+    my $pixmap = Gtk2::Gdk::Pixmap->new($W->window, $pw, $ph, 24);
     return $pixmap;
 }
 
@@ -1099,8 +1081,8 @@ sub download_stopped {
 sub download_finished {
     my ($mid) = @_;
     download_stopped($mid);
-    $_->destroy, undef $_ for $cancel_images{$mid}, list $size_label{$mid};
-    $download_successful{$mid} = 1;
+    $_->destroy, undef $_ for $Cancel_images{$mid}, list $Size_label{$mid};
+    $Download_successful{$mid} = 1;
 }
 
 sub cancel_download {
@@ -1117,51 +1099,21 @@ sub cancel_download {
     # will cancel timeouts
     $d->delete;
 
-    $last_idx--;
+    $Last_idx--;
     # decrease idx of later dls by 1
     for my $d ($D->all) {
         my $j = $d->idx;
         if ($j > $idx) {
             $d->idx_dec;
-            my $box = $info_box{$d->id};
+            my $box = $Info_box{$d->id};
             # shift up
-            $layout->move($box, $INFO_X, $RIGHT_PADDING_TOP + $d->idx * ($HP + $RIGHT_SPACING_V));
+            $W_ly->right->move($box, $INFO_X, $RIGHT_PADDING_TOP + $d->idx * ($HP + $RIGHT_SPACING_V));
         }
     }
-    my $info_box = delete $info_box{$mid};
-    $info_box->destroy;
+    my $Info_box = delete $Info_box{$mid};
+    $Info_box->destroy;
 
     update_scroll_area(-1);
-}
-
-sub set_label {
-    my ($label, $text, $opt) = @_;
-    my $size = $opt->{size} // '';
-    my $color = $opt->{color} // '';
-
-    my $s1 = '';
-    my $s2 = '';
-
-    # ignore size -- do it with rc
-    my $ss = $size ? qq|size="$size"|  : '';
-    #my $ss = '';
-    my $sc = $color ? qq|color="$color"| : '';
-    my @s = ($ss, $sc);
-
-    $s1 = "<span " . join ' ', @s if @s;
-    $s1 .= ">" if $s1;
-
-    $s2 = '</span>' if $s1;
-
-    my $markup = $s1 . $text . $s2;
-
-#D 'markup', $markup;
-
-    $markup =~ s/\&/&amp;/g;
-
-    my ($al, $txt, $accel_char) = Pango->parse_markup($markup);
-    $label->set_attributes($al);
-    $label->set_label($text);
 }
 
 sub err {
@@ -1172,7 +1124,7 @@ sub err {
     # class method or not
     my $s = $b // $a;
 
-    my $dialog = Gtk2::MessageDialog->new ($w,
+    my $dialog = Gtk2::MessageDialog->new ($W,
         'modal',
         'error',
         'close',
@@ -1187,8 +1139,8 @@ sub err {
 
 sub status {
     my ($class, $s) = @_;
-    $inited or warn, return;
-    $status_bar->push(STATUS_MISC, $s);
+    $G->init or warn, return;
+    $W_sb->main->push(STATUS_MISC, $s);
 }
 
 sub mess {
@@ -1197,7 +1149,7 @@ sub mess {
     # class method or not
     my $s = $b // $a;
 
-    my $d = Gtk2::MessageDialog->new($w,
+    my $d = Gtk2::MessageDialog->new($W,
         'modal',
         'info',
         'ok',
@@ -1213,27 +1165,28 @@ sub update_scroll_area {
     my $i = shift;
     $Scrollarea_height += ($HP + $RIGHT_SPACING_V) * $i;
     # first num just needs to be big
-    $layout->set_size(2000, $Scrollarea_height);
+    $W_ly->right->set_size(2000, $Scrollarea_height);
 }
 
 sub set_pane_position {
     my ($p) = @_;
-    $hp->set_position($pane_pos = $p);
+    $W_hp->main_pos($p);
+    $W_hp->main->set_position($p);
 }
 
 sub inject_movie {
     my $url = inject_movie_dialog() or return;
     state $i = 0;
     # check url?
-    $last_mid++;
-    #start_download($url, 'manual ' . ++$i, $last_mid);
-    start_download($url, undef, $last_mid);
+    $Last_mid++;
+    #start_download($url, 'manual ' . ++$i, $Last_mid);
+    start_download($url, undef, $Last_mid);
 }
 
 sub make_dialog {
     my $win = shift;
 
-    my $wi = $win // $w;
+    my $wi = $win // $W;
 
     my $dialog = Gtk2::Dialog->new;
 
@@ -1247,8 +1200,7 @@ sub inject_movie_dialog {
     my $c = $dialog->get_content_area;
     my $a = $dialog->get_action_area;
 
-    my $l = Gtk2::Label->new;
-    set_label($l, 'Manually add URL');
+    my $l = $L->new('Manually add URL');
     $c->add($l);
 
     my $i = Gtk2::Entry->new;
@@ -1295,8 +1247,8 @@ sub remove_wait_label {
     my ($mid) = @_;
     # my $wait_l = delete $wait_l{$mid} or warn;
     #$wait_l->{l}->destroy;
-    $is_waiting{$mid} = 0;
-    $status_bar->pop($mid);
+    $Is_waiting{$mid} = 0;
+    $W_sb->main->pop($mid);
 }
 
 sub movie_panic_while_waiting {
@@ -1356,8 +1308,7 @@ sub profile_dialog {
     $ca->add($fr);
     $hb->pack_start($vb, 1, 0, 10);
 
-    my $l = Gtk2::Label->new;
-    $l->set_label("Choose profile:");
+    my $l = $L->new("Choose profile:");
     $vb->pack_start($l, 1, 0, 10);
     $vb->pack_start($combo_box, 0, 0, 10);
 
@@ -1383,7 +1334,7 @@ sub profile_dialog {
 
 sub output_dir_dialog {
 
-    my $d = Gtk2::FileChooserDialog->new("Choose output directory", $w,
+    my $d = Gtk2::FileChooserDialog->new("Choose output directory", $W,
         'select-folder',
         'gtk-ok' => 'accept',
     );
@@ -1418,17 +1369,17 @@ sub do_output_dir_dialog {
     set_output_dir($od);
     # doesn't work
     #$status_bar->remove_all(STATUS_OD);
-    $status_bar->pop(STATUS_OD);
+    $W_sb->main->pop(STATUS_OD);
 }
 
 sub set_output_dir {
     my ($od) = @_;
-    $output_dir = $od;
-    main::set_output_dir($output_dir);
+    $Output_dir = $od;
+    main::set_output_dir($Output_dir);
 
     timeout(100, sub {
-        $status_bar_dir or return 1;
-        set_label($status_bar_dir, "$OUTPUT_DIR_TXT $output_dir", { size => 'small' });
+        $W_lb->od or return 1;
+        $W_lb->od->set_label("$OUTPUT_DIR_TXT $Output_dir", { size => 'small' });
         0;
     });
 }
@@ -1448,8 +1399,8 @@ sub simulate {
     my $sim_idx = 0;
     set_pane_position($Width / 2);
     timeout(1000, sub {
-        ++$last_mid;
-        my $mid = $last_mid;
+        ++$Last_mid;
+        my $mid = $Last_mid;
         my $size = int rand 1e6;
         my $of = "$SIM_TMP/blah$mid.flv";
         my $err_file = 'null';
@@ -1484,7 +1435,7 @@ sub simulate {
 
 sub redraw {
     # And all children.
-    $w->queue_draw;
+    $W->queue_draw;
 }
 
 

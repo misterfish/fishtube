@@ -22,7 +22,7 @@ BEGIN {
         R G B BR BB CY Y RESET
         D d D2 D3 D_QUIET D_RAW DC DC_QUIET
         randint is_int field is_num
-        nice_bytes nice_bytes_join
+        nice_bytes nice_bytes_join o
     /;
 }
 
@@ -36,6 +36,12 @@ use utf8;
 use Term::ANSIColor;
 use Carp 'confess';
 use Data::Dumper;
+
+use constant _CLASS_GENERATE => 1;
+
+# make simple singleton classes for keeping global space neat and also gives
+# us -> accessors
+use if _CLASS_GENERATE, 'Class::Generate' => 'class';
 
 # for bench
 use Time::HiRes 'time';
@@ -621,5 +627,20 @@ sub pad($$) {
         $str . ' ' x ($length - $l);
 }
 
+# generate anonymous object with -> accessors.
+# all members must be scalars for now.
+sub o {
+    die "generate is disabled" unless _CLASS_GENERATE;
+    state $idx = 0;
+    my %stuff = @_;
+    my $class_name = 'anon' . ++$idx;
+    my @class_def = map { $_ => '$' } keys %stuff;
+
+    # class anon1 => [ x => '$', y => '$', ... ];
+    class $class_name => [ @class_def ];
+
+    my $obj = $class_name->new(%stuff);
+    return $obj;
+}
 
 1;
