@@ -128,11 +128,13 @@ my $W_sb = o(
     main => Gtk2::Statusbar->new,
 );
 
-my $tree_data_magic;
+my $Tree_data_magic;
 
 my $W;
 
 my $Output_dir;
+
+#globals
 
 my $G = o(
 
@@ -165,6 +167,9 @@ my $G = o(
     # left pane
     movie_data => [],
 
+    '+-last_mid' => -1,
+    '+-last_idx' => -1,
+
 );
 
 my $Col = o(
@@ -185,9 +190,6 @@ my $Col = o(
 
     $G->img(\%img);
 }
-
-my $Last_mid = -1;
-my $Last_idx = -1;
 
 sub init {
 
@@ -253,8 +255,8 @@ sub init {
     $W_sw->left->add($W_sl->hist);
     $W_sw->left->show_all;
 
-    # tree_data_magic is tied
-    $tree_data_magic = $W_sl->hist->{data};
+    # Tree_data_magic is tied
+    $Tree_data_magic = $W_sl->hist->{data};
 
     $W_sl->hist->signal_connect (row_activated => sub { row_activated(@_) });
 
@@ -420,7 +422,7 @@ sub update_movie_tree {
     {
         my $m = shift_r $G->movies_buf;
         if (! %$m) {
-            @$tree_data_magic = "No movies -- first browse somewhere in Firefox.";
+            @$Tree_data_magic = "No movies -- first browse somewhere in Firefox.";
             return 1;
         }
         else {
@@ -429,7 +431,7 @@ sub update_movie_tree {
     }
 
     if ($first) {
-        @$tree_data_magic = ();
+        @$Tree_data_magic = ();
         $first = 0;
     }
 
@@ -458,9 +460,9 @@ sub update_movie_tree {
 
         $t =~ s/ \s* - \s* youtube \s* $//xi;
 
-        $Last_mid++;
-        unshift @$tree_data_magic, $t;
-        unshift_r $G->movie_data, { mid => $Last_mid, url => $u, title => $t};
+        $G->last_mid_inc;
+        unshift @$Tree_data_magic, $t;
+        unshift_r $G->movie_data, { mid => $G->last_mid, url => $u, title => $t};
 
         # first in buffer is last
         $last = $u if ++$i == @n;
@@ -776,8 +778,9 @@ sub add_download {
     # happen)
     warn "download buf not empty" if $G->download_buf;
 
+    $G->last_idx_inc;
     $G->download_buf({
-        idx => ++$Last_idx,
+        idx => $G->last_idx,
         mid => $mid,
         size => $size,
         title => $title,
@@ -1110,7 +1113,7 @@ sub cancel_download {
     # will cancel timeouts
     $d->delete;
 
-    $Last_idx--;
+    $G->last_idx_dec;
     # decrease idx of later dls by 1
     for my $d ($D->all) {
         my $j = $d->idx;
@@ -1189,9 +1192,9 @@ sub inject_movie {
     my $url = inject_movie_dialog() or return;
     state $i = 0;
     # check url?
-    $Last_mid++;
+    $G->last_mid_inc;
     #start_download($url, 'manual ' . ++$i, $Last_mid);
-    start_download($url, undef, $Last_mid);
+    start_download($url, undef, $G->last_mid);
 }
 
 sub make_dialog {
@@ -1410,8 +1413,8 @@ sub simulate {
     my $sim_idx = 0;
     set_pane_position($G->width / 2);
     timeout(1000, sub {
-        ++$Last_mid;
-        my $mid = $Last_mid;
+        $G->last_mid_inc;
+        my $mid = $G->last_mid;
         my $size = int rand 1e6;
         my $of = "$SIM_TMP/blah$mid.flv";
         my $err_file = 'null';
