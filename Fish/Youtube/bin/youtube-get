@@ -207,18 +207,21 @@ D2 'qual', $data{quality};
 (@urls = @u_mp4) || (@urls = @u_flv) || die "Couldn't understand any urls.";
 
 # in order of pref
-my @QUALS = qw/ hd1080 hd720 large medium small /;
+#my @QUALS = qw/ hd1080 hd720 large medium small /;
+my @QUALS = qw/ medium small large hd1080 hd720 /;
 
-my @quals = $opt_s ? $opt_s : @QUALS;
+my @quals = $opt_s // @QUALS;
 
 D2 'num_urls', scalar @urls;
-D2 '', $_->[0] for @urls;
+D2 @$_ for @urls;
 
 URL:
-for my $u (@urls) {
-    my ($_u, $qual) = @$u;
-    for my $q (@quals) {
+for my $q (@quals) {
+    for my $u (@urls) {
+        my ($_u, $qual) = @$u;
+        D2 'checking', Y $q, 'against', Y $qual;
         if ($qual eq $q) {
+            D2 'Found url for', Y $qual;
             $url = $_u;
             last URL;
         }

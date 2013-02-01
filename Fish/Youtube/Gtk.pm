@@ -422,7 +422,7 @@ sub update_movie_tree {
     # single value of {} means History returned exactly 0 entries
     {
         my $m = shift_r $G->movies_buf;
-        if (! %$m) {
+        if (! $m or ! %$m) {
             @$Tree_data_magic = "No movies -- first browse somewhere in Firefox.";
             return 1;
         }

@@ -230,7 +230,9 @@ sub start_download {
     my $force = $force_get ? '-f' : '';
     # anything on out is an err
     # quiet, no terminal (i.e. disable colors)
-    my $cmd = qq, $main::bin_dir/youtube-get 2>"$err_file" $force -q -T -t "$tmp" $o "$url ",;
+my $SMALL = 0;
+my $s = $SMALL ? '-s small' : '';
+    my $cmd = qq, $main::bin_dir/youtube-get 2>"$err_file" $s $force -q -T -t "$tmp" $o "$url ",;
     D2 'cmd', $cmd;
 
     my ($pid) = sync_exec $cmd;

@@ -606,14 +606,17 @@ sub _bench {
 sub nice_bytes ($) {
     # bytes
     my $n = shift;
-    if ( $n < 1000 ) {
+    if ( $n < 2 ** 10 ) {
         return sprintf("%d", $n), 'b';
     }
-    elsif ( $n < 1024000 ) {
-        return sprintf("%.1f", $n / 1024), 'K';
+    elsif ( $n < 2 ** 20 ) {
+        return sprintf("%.1f", $n / 2 ** 10), 'K';
     }
-    elsif ( $n < 1024000 * 1024 ) {
-        return sprintf("%.1f", $n / 1024 / 1024), 'M';
+    elsif ( $n < 2 ** 30) {
+        return sprintf("%.1f", $n / 2 ** 20), 'M';
+    }
+    else {
+        return sprintf("%.1f", $n / 2 ** 30), 'G';
     }
 }
 
