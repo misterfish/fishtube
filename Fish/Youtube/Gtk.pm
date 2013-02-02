@@ -2,6 +2,9 @@ package Fish::Youtube::Gtk;
 
 # needs refactor -- too much crap in this module
 
+
+use Fish::Youtube::Test;
+
 use 5.10.0;
 
 use strict;
@@ -71,7 +74,6 @@ my $RIGHT_PADDING_TOP = 20;
 
 # start watching when this perc downloaded.
 my $AUTO_WATCH_PERC = 10;
-my $auto_start_watching = 1;
 
 my $RIGHT_SPACING_V = 15;
 
@@ -142,6 +144,8 @@ my $G = o(
     height => $HEIGHT,
     # calculated
     width => -1,
+
+    auto_start_watching => 1,
 
     init => 0,
     last_mid_in_statusbar => -1,
@@ -289,7 +293,7 @@ sub init {
     $auto_start_cb->signal_connect('toggled', sub {
         state $state = 1;
         $state = !$state;
-        $auto_start_watching = $state;
+        $G->auto_start_watching($state);
     });
     {
         my $l = ($auto_start_cb->get_children)[0];
@@ -315,12 +319,21 @@ sub init {
 
     $outer_box->pack_end($status_table, 0, 0, 10);
 
-    {
+    if (1) {
         my $b = Gtk2::Button->new('a');
         $b->signal_connect('clicked', sub {
+                state $i = 0;
                 # some debug
+
+                my $j :shared = $i;
+
+                my $tid = $Fish::Youtube::Test::Queue_idle->dequeue;
+                return if $tid < 0; # ?
+                $Fish::Youtube::Test::Queues_work{$tid}->enqueue(\$j);
+
+                $i++;
             });
-        #$outer_box->add($b);
+        $outer_box->add($b);
     }
 
     $W->add($outer_box);
@@ -689,13 +702,31 @@ sub start_download {
 
         add_download($mid, $t, $size, $o, $pid);
 
+        my $cur_size = -1;
+
         timeout( 200, sub { 
-            return file_progress({ simulate => 0}, $mid, $o, $size, $err_file, $pid);
+            return file_progress({ simulate => 0}, $mid, $o, \$cur_size, $size, $err_file, $pid);
         });
+
+        timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $o) };
 
         return 0;
     });
     # / child wait
+}
+
+sub auto_start_watching {
+    my ($mid, $cur_size_r, $size, $file) = @_;
+
+    $G->auto_launched->{$mid} and return 0;
+
+    if ($G->auto_start_watching) {
+        if ($$cur_size_r / $size * 100 > $AUTO_WATCH_PERC) {
+            $G->auto_launched->{$mid} = 1;
+            main::watch_movie($file);
+        }
+    }
+    return 1;
 }
 
 sub get_metadata {
@@ -725,7 +756,7 @@ sub file_progress {
         my $opt = shift;
         $simulate = $opt->{simulate} // 0;
     }
-    my ($mid, $file, $size, $err_file, $pid) = @_;
+    my ($mid, $file, $cur_size_r, $size, $err_file, $pid) = @_;
     my $s = stat $file or warn(), return 1;
 
     my $d = $D->get($mid);
@@ -736,15 +767,8 @@ sub file_progress {
         return 0;
     }
 
-    my $cur_size = $s->size;
-    $d->prog($cur_size);
-
-    if (!$G->auto_launched->{$mid} and ! $simulate ) {
-        if ($auto_start_watching and $cur_size / $size * 100 > $AUTO_WATCH_PERC) {
-            $G->auto_launched->{$mid} = 1;
-            main::watch_movie($file);
-        }
-    }
+    $$cur_size_r = $s->size;
+    $d->prog($$cur_size_r);
 
     # process not running -- finished or aborted
 
@@ -752,10 +776,10 @@ sub file_progress {
 
     if ( ! sys_ok "ps $pid" and ! $simulate ) {
 
-        D2 'cur_size', $cur_size;
+        D2 'cur_size', $$cur_size_r;
 
         # finished
-        if ($cur_size == $size) {
+        if ($$cur_size_r == $size) {
             download_finished($mid);
             return 0;
         }

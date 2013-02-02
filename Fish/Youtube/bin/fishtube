@@ -27,6 +27,9 @@ use warnings;
 use threads;
 use threads::shared;
 
+# as early as possible
+use Fish::Youtube::Test;
+
 use Gtk2;
 
 use Time::HiRes 'sleep';
@@ -65,6 +68,7 @@ my $USAGE = "Usage: $0 [-p firefox-profile] [-d to debug] [-o output_dir]";
 
 $opt_h and error $USAGE;
 
+                state $III = 0;
 my $Profile_dir;
 my $Output_dir;
 

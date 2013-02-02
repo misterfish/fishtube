@@ -218,7 +218,7 @@ D2 'pid', $Child_pid;
 
         # put perl in cmdline so there's no extra process.
         # doesn't do what i thought.
-        my $cmd = qq, "$Yg" -s $DEFAULT_SIZE -k "$url" , ;
+        my $cmd = qq, "$Yg" -s $DEFAULT_SIZE "$url" , ;
 D 'cmd', $cmd;
         my ($pid) = sync_exec $cmd;
 
