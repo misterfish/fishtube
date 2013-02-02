@@ -31,6 +31,11 @@ use Getopt::Std;
 use Fish::Youtube::Get;
 use Fish::Youtube::Utility;
 
+my $TMP = '/tmp';
+
+my $MP = 'mp';
+my $AUTO_PERC = .1;
+
 sub error;
 sub war;
 
@@ -76,24 +81,17 @@ my $get = Fish::Youtube::Get->new(
     $opt_t ? (tmp => $opt_t) : (),
     $opt_o ? (out_file => $opt_o) : (),
     $opt_d ? (dir => $opt_d) : (),
-    $opt_T ? (no_terminal => 1) : (),
     force => $opt_f ? 1 : 0,
-    quiet => $opt_q ? 1 : 0,
+    #quiet => $opt_q ? 1 : 0,
 
     url => $url,
 );
 
-$get->get_avail;
-
-my $avail = $get->avail or error "Can't get info.";
+my $avail = $get->get_avail or error "Can't get info.";
 
 if ($opt_v) {
     say datadump $avail;
 }
-
-#delete $avail->{small};
-
-#my $get_url;
 
 my $type;
 my $quality;
@@ -103,59 +101,34 @@ if ($opt_P) {
     ($quality, $type) = prompt();
 }
 else {
-    if (my $d = $avail->{$p_qual}) {
-        $quality = $p_qual;
-        for my $t (keys %$d) {
-            D2 'type', $t;
-            if ($t =~ /video\/$p_type/) {
-                D2 'got preferred type', $t;
-                #$get_url = $d->{$t};
+    
+    ($quality, $type) = $get->check($p_qual, $p_type);
 
-                $type = $t;
-
-                last;
-            }
-        }
-    }
     # couldn't get preferred
     if (!$type || !$quality) {
         if ($opt_p) {
             # got preferred qual but not type
             if ($quality) {
-                D 'Got preferred quality but not type.';
+                D 'Got preferred quality, prompting for type.';
                 $type = prompt($quality);
             }
             else {
-                D "Didn't get preferred quality or type.";
+                D "Prompting for quality and type.";
                 ($quality, $type) = prompt();
             }
         }
         else {
-            my (@q, @t);
             if ($quality) {
-                @q = $quality;
-                #e.g. (1,2,3,4) -> (3,4,1,2)
-                @t = rotate(\@TYPES, $p_type);
-                D 'rotated', @t;
+                D 'Got preferred quality but not type.';
+                $type = $get->fallback($p_type, $p_qual, $quality);
             }
             else {
-                @q = rotate(\@QUALITY, $p_qual);
-                @t = rotate(\@TYPES, $p_type);
-            }
-
-            for my $q (@q) {
-                my $d = $avail->{$q} or next;
-                for my $t (@t) {
-                    for my $k (keys %$d) {
-                        if ($k =~ /video\/$t/) {
-                            $quality = $q;
-                            $type = $t;
-                        }
-                    }
-                }
+                D "Getting fallback quality and type.";
+                ($quality, $type) = $get->fallback($p_type, $p_qual);
             }
         }
     }
+
     else { 
         #ok
     }
@@ -163,9 +136,13 @@ else {
 
 $quality and $type or die;
 
+D 'Getting', 'quality', $quality, 'type', $type;
+
+$get->set($quality, $type) or die;
+
 my $of = $get->out_file;
-DC 'quality', $quality, 'type', $type;
-D 'out_file', $of;
+
+D 'Output file', $of;
 
 if (my ($ext) = ($of =~ /\.([^\.]+)$/)) {
     if ($type !~ m|^video/ (x-)? $ext |x) {
@@ -173,25 +150,35 @@ if (my ($ext) = ($of =~ /\.([^\.]+)$/)) {
     }
 }
 
-$get->set($quality, $type) or die;
-
 my $size = $get->get_size;
+
+if (open my $fh, ">$TMP/.yt-file-$$") {
+    say $fh $of;
+    say $fh $size;
+}
 
 async { progress($size, $of) }->detach;
 
 $get->get;
 
 sub progress {
-    my $size = shift;
-    my $of = shift;
+    my ($size, $of) = @_;
 
+    my $ap_started = 0;
     my $first = 1;
     while ( 1 ) {
         $first ? $first = 0 : sleep .5 ;
 
         -e $of or next;
 
-        my $a = nice_bytes_join (stat($of)->size);
+        my $cur = stat($of)->size;
+
+        if (!$ap_started and $cur / $size >= $AUTO_PERC) {
+            $ap_started = 1;
+            sys qq, $MP "$of" ,;
+        }
+
+        my $a = nice_bytes_join ($cur);
         my $b = nice_bytes_join ($size);
 
         my $s = sprintf "%s / %s", BB $a, Y $b;
@@ -200,45 +187,6 @@ sub progress {
         printf $s;
     }
 }
-=cut
-=head
-    my $url;
-    if (my $d = $avail->{$qual}) {
-        D 'got preferred qual', $qual;
-        for my $t (keys %$d) {
-            D 'type', $t;
-            if ($t =~ /video\/$type/) {
-                D 'got preferred type', $t;
-                $url = $d->{$t};
-                last;
-            }
-        }
-        # Just get any type
-        if (!$url) {
-            my $t = (keys %$d)[0];
-            $url = $d->{$t};
-            D 'picking random type', 'type', $t, 'url', $url;
-        }
-    }
-    else {
-        D "couldn't get preferred size";
-        
-    }
-    if (!$url) {
-        D "Couldn't get url.";
-    }
-
-    for my $qual (keys %$avail) {
-        D 'qual', $qual;
-        my $d = $avail->{$qual};
-        for my $type (keys %$d) {
-            D 'type', $type;
-            my $url = $d->{$type};
-            D 'url', $url;
-        }
-    }
-}
-=cut
 
 exit;
 
@@ -273,27 +221,6 @@ sub make_menu {
     return $res;
 }
 
-sub rotate {
-    my ($list, $start) = @_;
-    my @list = @$list;
-                my $i = -1;
-    my (@l, @r);
-    if ($start ~~ $list) {
-        for (@list) {
-            $i++;
-            if ($_ eq $p_type) {
-                @r = splice @list, 0, $i;
-                shift @list;
-                @l = @list;
-                return (@l, @r);
-            }
-        }
-    }
-    else {
-        return @$list;
-    }
-}
-
 sub prompt {
     my $qual = shift;
 
@@ -313,4 +240,7 @@ sub prompt {
     return ($qual, $t);
 }
 
+sub END {
+    say '';
+}
 

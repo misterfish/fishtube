@@ -9,7 +9,8 @@ use threads;
 use threads::shared;
 use Thread::Queue;
 
-my $III = 0;
+use Fish::Youtube::Get;
+use Fish::Youtube::Utility;
 
 my $NUM_THREADS = 4;
 my $Terminate :shared = 0;
@@ -17,12 +18,8 @@ our $Queue_idle = Thread::Queue->new;
 
 # signals ...
 
-my %T = (
-    a => [qw/ small medium large/],
-    b => ['small'],
-);
-
-my $T = shared_clone \%T;
+my @QUALITY = Fish::Youtube::Get->quality;
+my @TYPES = Fish::Youtube::Get->types;
 
 our %Queues_work;
 our %Queues_response;
@@ -48,21 +45,53 @@ sub thread {
         
         my $url = $msg->{url};
 
-        my @options = @{$T->{$url}};
-        say "Thread $tid, options are ", join ' ', @options;
+        my $get = Fish::Youtube::Get->new(
+            dir => '/tmp',
+            url => $url,
+        );
 
-        $qr->enqueue(\@options);
+        $get->get_avail;
+        my $avail = $get->avail;
+
+        #my $p_qual = 'medium';
+        #my $p_type = 'mp4';
+        #my ($quality, $type) = $get->check($p_qual, $p_type);
+        #if ($quality) {
+        #    D 'Got preferred quality but not type.';
+        #    $type = $get->fallback($p_type, $p_qual, $quality);
+        #}
+        #else {
+        #    D "Getting fallback quality and type.";
+        #    ($quality, $type) = $get->fallback($p_type, $p_qual);
+        #}
+
+        #$qr->enqueue([$quality, $type]);
+        my @sort = map { defined $avail->{$_} ? $_ : () } @QUALITY;
+        $qr->enqueue(\@sort);
 
         my $response = $qw->dequeue;
 
-        if (!%$response) {
+        my $size = $response->{size};
+
+        my $types = $avail->{$size};
+
+        #my @sort2 = map { defined $types->{$_} ? $_ : () } @TYPES;
+        my @types = keys %$types;
+
+        $qr->enqueue(\@types);
+
+        my $response2 = $qw->dequeue;
+
+        if (!%$response2) {
             say "Ok, cancelling";
-        }
-        else {
-            say "Ok, getting $response->{size}";
+            next;
         }
 
-        last if $msg == {};
+        my $type = $response2->{type};
+
+        D "Ok, getting", 'size', $size, 'type', $type;
+
+        #last unless %$msg;
     }
     say "$tid done.";
 }

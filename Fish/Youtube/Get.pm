@@ -34,6 +34,11 @@ my $Content_length = undef;
 my $Outfile_size = 0;
 my $Yt_file;
 
+has _c => (
+    is => 'rw',
+    isa => 'Str',
+);
+
 # optional, determined from title if missing
 has out_file => (
     is  => 'rw',
@@ -51,6 +56,7 @@ has debug => (
     default => 0,
 );
 
+# used??
 has quiet => (
     is  => 'ro',
     isa => 'Bool',
@@ -113,6 +119,9 @@ sub BUILD {
 
     defined $self->size and die "don't set size";
 
+    my $tmp = $self->tmp;
+    (-d $tmp and -w $tmp) or war("Invalid tmp:", R $tmp), return;
+
     my $Out_file;
 
     my $ua = LWP::UserAgent->new;
@@ -120,8 +129,9 @@ sub BUILD {
 
     $ua->agent('Mozilla/5.0 (X11; Linux i686; rv:10.0.5) Gecko/20100101 Firefox/10.0.5 Iceweasel/10.0.5');
 
+    # necessary?
     my $cookie_jar = HTTP::Cookies->new(
-        file     => $self->tmp . "/yt-cook.txt",
+        file     => $self->tmp . "/yt-cook-$$.txt",
         autosave => 1,
     );
     $ua->cookie_jar( $cookie_jar );
@@ -145,48 +155,9 @@ sub get_avail {
     # can be partial content ... apparently still timing out sometimes?
 
     my $c = $res->decoded_content;
-    my $of = $self->out_file;
+    $self->_c($c);
 
     my $quiet = $self->quiet;
-
-    if ( ! $of ) {
-        my $title = ($c =~ m|<title>(.+?)</title>|si)[0];
-        $title =~ s/ *-\s*youtube\s*$//gi;
-
-        $title =~ s/^\s+//;
-        $title =~ s/\s+$//;
-
-        $title = decode_entities $title;
-
-        $title =~ s/[\n:!\*<>\`\$]//g;
-
-        $title =~ s|/ |-|gx;
-        $title =~ s|\\|-|g;
-        $title =~ s/"/'/g;
-
-        $quiet or D 'title', $title;
-
-        $of = $title . ".flv";
-    }
-
-    my $dir = $self->dir;
-    # rel -- put dir
-    if ($dir and $of !~ /^\//) {
-        $of .= $dir . "/" . $self->out_file;
-    }
-
-    $self->out_file($of);
-
-    if (-e $of and ! $self->force) {
-        my $pwd = sys_chomp 'pwd';
-        if ($of !~ /^\//) {
-            $of = "$pwd/$of";
-        }
-        utf8::encode($of);
-        war Y $of, "exists";
-        return;
-    }
-    sys qq, touch "$of" ,;
 
     my $data = $self->extract_urls(\$c);
     if (!$data) {
@@ -211,6 +182,52 @@ sub set {
         war "Invalid quality and type", Y $quality, B $type;
         return 0;
     }
+
+    my $quiet = $self->quiet;
+    my $of = $self->out_file;
+
+    if ( ! $of ) {
+        my $title = ($self->_c =~ m|<title>(.+?)</title>|si)[0];
+        $title =~ s/ *-\s*youtube\s*$//gi;
+
+        $title =~ s/^\s+//;
+        $title =~ s/\s+$//;
+
+        $title = decode_entities $title;
+
+        $title =~ s/[\n:!\*<>\`\$]//g;
+
+        $title =~ s|/ |-|gx;
+        $title =~ s|\\|-|g;
+        $title =~ s/"/'/g;
+
+        my ($ext) = ($type =~ /video \/ ([^;]+) /x);
+        $ext = 'flv' if $ext eq 'x-flv';
+        $self->d2('ext', $ext);
+        $of = $title . ".$ext";
+    }
+
+    my $dir = $self->dir;
+    # rel -- put dir
+    if ($dir and $of !~ /^\//) {
+        $of = $dir . "/" . $of;
+    }
+
+    $self->out_file($of);
+
+    if (-e $of and ! $self->force) {
+        my $pwd = sys_chomp 'pwd';
+        if ($of !~ /^\//) {
+            $of = "$pwd/$of";
+        }
+        utf8::encode($of);
+        war Y $of, "exists";
+        return;
+    }
+    sys qq, touch "$of" ,;
+
+
+
     return 1;
 }
 
@@ -353,6 +370,79 @@ sub END {
 sub war {
     my @s = @_;
     warn join ' ', @s, "\n";
+}
+
+sub fallback {
+    # quality can be undef
+    my ($self, $p_type, $p_qual, $quality) = @_;
+
+    my (@q, @t);
+
+    if ($quality) {
+        @q = $quality;
+        #e.g. (1,2,3,4) -> (3,4,1,2)
+        @t = rotate(\@TYPES, $p_type);
+    }
+    else {
+        @q = rotate(\@QUALITY, $p_qual);
+        @t = rotate(\@TYPES, $p_type);
+    }
+
+    Q:
+    for my $q (@q) {
+        my $d = $self->avail->{$q} or next;
+        for my $t (@t) {
+            for my $k (keys %$d) {
+                #D 't', $t, 'k', $k;
+                if ($k =~ /video\/$t/) {
+                    return ($q, $k);
+                }
+            }
+        }
+    }
+    # bad
+    return;
+}
+
+sub rotate {
+    my ($list, $start) = @_;
+    my @list = @$list;
+    my $i = -1;
+    my (@l, @r);
+    if ($start ~~ $list) {
+        for (@list) {
+            $i++;
+            if ($_ eq $start) {
+                @r = splice @list, 0, $i;
+                shift @list;
+                @l = @list;
+                return (@l, @r);
+            }
+        }
+    }
+    else {
+        return @$list;
+    }
+}
+
+sub check {
+    my ($self, $p_qual, $p_type) = @_;
+    $p_type = 'x-flv' if $p_type eq 'flv';
+    my ($quality, $type);
+    if (my $d = $self->avail->{$p_qual}) {
+        $quality = $p_qual;
+        for my $t (keys %$d) {
+            D2 'type', $t;
+            if ($t =~ /video\/$p_type/) {
+                D2 'got preferred type', $t;
+
+                $type = $t;
+
+                last;
+            }
+        }
+    }
+    return ($quality, $type);
 }
 
 

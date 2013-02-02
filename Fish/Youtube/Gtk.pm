@@ -333,21 +333,34 @@ sub init {
                 D $j;
                 my $tid = $qi->dequeue;
                 return if $tid < 0; # ?
+
                 my $qw = $t->queues_work->{$tid};
                 my $qr = $t->queues_response->{$tid};
-                my $msg = { url => $j };
+
+                my $msg = { url => "http://www.youtube.com/watch?v=QARALafdWUI" };
                 $qw->enqueue($msg);
 
                 $qw = $t->queues_work->{$tid};
                 my $response = $qr->dequeue;
 
+                #my ($qual, $type) = @$response;
                 my @choices = @$response;
+
+                #D 'main: ', 'qual', $qual, 'type', $type;
 
                 my $choice = list_choice_dialog(\@choices, "Choose quality", {allow_cancel => 1});
 
-                D 'choice', $choice;
                 my $msg2 = $choice ? { size => $choice } : {};
                 $qw->enqueue($msg2);
+
+                my $response2 = $qr->dequeue;
+                my @choices2 = @$response2;
+
+                my $choice2 = list_choice_dialog(\@choices2, "Choose format", {allow_cancel => 1});
+
+                my $msg3 = $choice2 ? { type => $choice2 } : {};
+                $qw->enqueue($msg3);
+
 
                 $i++;
             });

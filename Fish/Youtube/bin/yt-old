@@ -20,8 +20,6 @@ BEGIN {
 use warnings;
 use strict;
 
-$| = 1;
-
 use Proc::SyncExec (qw/ sync_exec sync_popen_noshell /);
 use Proc::ProcessTable;
 
@@ -126,6 +124,19 @@ else {
     $Out_file = get_movie_from_browser_history();
 }
 
+if ($num == 1) {
+    $Out_file or error "Couldn't get file.\n";
+    my $i = 0;
+    while ((stat $Out_file)->size < $NUM_BYTES_BEFORE_PLAY) {
+        $i++ > 50 and error "Timed out waiting for file to grow.\n";
+        sleep .5;
+    }
+    sys sprintf(qq. mp 2>&1 %s "%s" ., $opts{g}, $Out_file);
+}
+else {
+    say "-n used and not 1, not showing.";
+}
+
 exit 0;
 
 sub get_movie_from_temp {
@@ -186,12 +197,67 @@ sub get_movie {
     my $movie_file;
     my $get = 1;
 
-    my $cmd = qq, "$Yg" "$url" , ;
-D 'cmd', $cmd;
-#my ($pid) = sync_exec $cmd;
-    say sys $cmd;
+=head
+    if ( ($Child_pid) = $ps =~ /^\s*(\d+).*youtube-get.+\Q$url\E/m ) {
+D2 'pid', $Child_pid;
+        my $file = "$FILENAME_FILE-$Child_pid";
+        my $fh = safeopen $file;
+        local $/ = "\n";
+        chomp($movie_file = <$fh>);
+        if ( -e $movie_file) {
+            # This 'only showing' thing works when the dl is still in
+            # progress but not when it finished.
+            warn D_QUIET "Not getting, just showing ", $movie_file;
+            $get = 0;
+        }
+        else {
+            warn "Killing old youtube-get ($Child_pid)";
+            sys "kill $Child_pid";
+        }
+    } 
+=cut
 
-    #return $movie_file;
+        # put perl in cmdline so there's no extra process.
+        # doesn't do what i thought.
+        #my $cmd = qq, "$Yg" -s $DEFAULT_SIZE "$url" , ;
+        my $cmd = qq, "$Yg" "$url" , ;
+D 'cmd', $cmd;
+        my ($pid) = sync_exec $cmd;
+
+        my $i = 0;
+        while (! $Child_pid) {
+            $i++ > 15 and error "Can't get pid of child process.\n";
+
+            $Child_pid = get_proc_with_ppid($pid, $Yg);
+            sleep .5;
+        }
+
+D 'pid', $Child_pid;
+        my $file = $FILENAME_FILE . "-$Child_pid";
+D 'ff', $file;
+        my $ok = 0;
+        for (1..10) {
+            if (! sys_ok "ps $Child_pid") {
+                error "Child", Y $Child_pid, 'died';
+            }
+            if (-e $file) {
+                my $fh = safeopen $file;
+                # youtube-get makes an empty output file if it dies.
+                if (defined ($movie_file = <$fh>)) {
+                    $ok = 1;
+                    last;
+                }
+            }
+            sleep 1;
+        }
+        $ok or error "Timed out waiting for file $file";
+
+
+D2 'movie_file', $movie_file;
+    my $fh_pid = safeopen ">$PID_FILE";
+    say $fh_pid $Child_pid;
+
+    return $movie_file;
 }
 
 sub error {
