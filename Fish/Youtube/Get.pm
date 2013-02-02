@@ -56,12 +56,6 @@ has debug => (
     default => 0,
 );
 
-# used??
-has quiet => (
-    is  => 'ro',
-    isa => 'Bool',
-);
-
 has force => (
     is  => 'ro',
     isa => 'Bool',
@@ -80,7 +74,12 @@ has tmp => (
     default => $DEFAULT_TMP,
 );
 
-has avail => (
+has avail_by_quality => (
+    is => 'rw',
+    isa => 'HashRef',
+);
+
+has avail_by_type => (
     is => 'rw',
     isa => 'HashRef',
 );
@@ -94,6 +93,42 @@ has url => (
 has ua => (
     is  => 'rw',
     isa => 'LWP::UserAgent',
+);
+
+has preferred_quality => (
+    is  => 'ro',
+    isa => 'Str',
+    default => 'medium',
+);
+
+has is_tolerant_about_quality => (
+    is => 'ro',
+    isa => 'Bool',
+    default => 1,
+);
+
+has preferred_type => (
+    is  => 'ro',
+    isa => 'Str',
+    default => 'mp4',
+);
+
+has is_tolerant_about_type => (
+    is => 'ro',
+    isa => 'Bool',
+    default => 1,
+);
+
+has quality => (
+    is  => 'ro',
+    isa => 'Str',
+    writer => '_set_quality',
+);
+
+has type => (
+    is  => 'ro',
+    isa => 'Str',
+    writer => '_set_type',
 );
 
 my @QUALITY = qw/ small medium large hd720 hd1080 /;
@@ -118,6 +153,10 @@ sub BUILD {
     my ($self, $args) = @_;
 
     defined $self->size and die "don't set size";
+    defined $self->quality and die "don't set quality";
+    defined $self->type and die "don't set type";
+
+    $self->preferred_type('x-flv') if $self->preferred_type eq 'flv';
 
     my $tmp = $self->tmp;
     (-d $tmp and -w $tmp) or war("Invalid tmp:", R $tmp), return;
@@ -141,10 +180,7 @@ sub BUILD {
 
     my $YT_FILE = ".yt-file";
     $Yt_file = $self->tmp . "/$YT_FILE-$$";
-}
 
-sub get_avail {
-    my ($self) = @_;
     my $res = $self->ua->get($self->url);
 
     if (!$res->is_success) {
@@ -157,8 +193,6 @@ sub get_avail {
     my $c = $res->decoded_content;
     $self->_c($c);
 
-    my $quiet = $self->quiet;
-
     my $data = $self->extract_urls(\$c);
     if (!$data) {
         war "Couldn't get avail.";
@@ -166,16 +200,32 @@ sub get_avail {
     }
     $self->d2('data', $data);
 
-    $self->avail($data);
+    my %abq = ();
+    my %abt = ();
 
-    return $data;
+    for my $q (keys %$data) {
+        my $d = $data->{$q};
+        for my $t (keys %$d) {
+            my $url = $d->{$t};
+            my ($short_type) = ($t =~ /video \/ ([^;]+)/x);
+
+            $abq{$q}{$short_type} = [$t, $url];
+            $abt{$short_type}{$q} = [$t, $url];
+        }
+    }
+
+    $self->avail_by_quality(\%abq);
+    $self->avail_by_type(\%abt);
+
+    my ($quality, $type) = $self->_set_params;
+    
+    $self->set($self->quality, $self->type);
 }
 
 sub set {
     my ($self, $quality, $type) = @_;
-    #$self->_quality($quality);
-    #$self->_type($type);
-    if (my $u = $self->avail->{$quality}{$type}) {
+    if (my $d = $self->avail_by_quality->{$quality}{$type}) {
+        my $u = $d->[1];
         $self->_movie_url($u);
     }
     else {
@@ -183,7 +233,6 @@ sub set {
         return 0;
     }
 
-    my $quiet = $self->quiet;
     my $of = $self->out_file;
 
     if ( ! $of ) {
@@ -201,7 +250,7 @@ sub set {
         $title =~ s|\\|-|g;
         $title =~ s/"/'/g;
 
-        my ($ext) = ($type =~ /video \/ ([^;]+) /x);
+        my $ext = $type;
         $ext = 'flv' if $ext eq 'x-flv';
         $self->d2('ext', $ext);
         $of = $title . ".$ext";
@@ -240,7 +289,7 @@ sub get_size {
     my ($self) = @_;
     my $url = $self->_movie_url;
     if (!$url) {
-        war "First call set() or set_defaults()";
+        warn;
         return;
     }
 
@@ -267,7 +316,7 @@ sub get {
 
     my $url = $self->_movie_url;
     if (!$url) {
-        war "First call set() or set_defaults()";
+        warn;
         return;
     }
 
@@ -354,7 +403,7 @@ sub extract_urls {
 }
 
 sub types { @TYPES }
-sub quality { @QUALITY }
+sub qualities { @QUALITY }
 
 1;
 
@@ -372,36 +421,114 @@ sub war {
     warn join ' ', @s, "\n";
 }
 
-sub fallback {
-    # quality can be undef
-    my ($self, $p_type, $p_qual, $quality) = @_;
+sub _set_params {
+    my ($self) = @_;
+    my $abq = $self->avail_by_quality;
+    my $abt = $self->avail_by_type;
 
-    my (@q, @t);
+    %$abq or warn, return;
+    %$abt or warn, return;
 
-    if ($quality) {
-        @q = $quality;
-        #e.g. (1,2,3,4) -> (3,4,1,2)
-        @t = rotate(\@TYPES, $p_type);
+    my $pq = $self->preferred_quality;
+    my $pt = $self->preferred_type;
+
+    my $q;
+    my $t;
+
+    if ($abq->{$pq}) {
+        $self->_set_quality($pq);
+        $q = $pq;
     }
-    else {
-        @q = rotate(\@QUALITY, $p_qual);
-        @t = rotate(\@TYPES, $p_type);
+
+    if ($abt->{$pt}) {
+        $self->_set_type($pt);
+        $t = $pt;
     }
 
-    Q:
-    for my $q (@q) {
-        my $d = $self->avail->{$q} or next;
-        for my $t (@t) {
-            for my $k (keys %$d) {
-                #D 't', $t, 'k', $k;
-                if ($k =~ /video\/$t/) {
-                    return ($q, $k);
-                }
-            }
+    if ($q and $t) { 
+        return 1;
+    }
+
+    if (not $t) {
+        if (! $self->is_tolerant_about_type) {
+            war "Can't get preferred type", Y $pt, "and not tolerant.";
+            return;
+        }
+
+    }
+
+    if (not $q) {
+        if (! $self->is_tolerant_about_quality) {
+            war "Can't get preferred quality", Y $pq, "and not tolerant.";
+            return;
         }
     }
-    # bad
-    return;
+
+    if ($q) {
+        my @t = rotate(\@TYPES, $pt);
+D 't', @t;
+        my $d = $abq->{$q};
+
+        say datadump $d;
+
+        for my $t (@t) {
+            if ($d->{$t}) {
+                $self->_set_type($t);
+                return 1;
+            }
+        }
+
+        # panic -- unknown type
+        my $ty = (keys %$d)[0];
+        warn "Setting unrecognised type:", Y $ty;
+        $self->_set_type($ty);
+        return 1;
+    }
+    elsif ($t) {
+        my @q = rotate(\@QUALITY, $pq);
+        my $d = $abt->{$t};
+        for my $q (@q) {
+            if ($d->{$q}) {
+                $self->_set_quality($q);
+                return 1;
+            }
+        }
+
+        # panic -- unknown qual
+        my $qu = (keys %$d)[0];
+        warn "Setting unrecognised quality:", Y $qu;
+        $self->_set_quality($qu);
+        return 1;
+    }
+    elsif (not $q and not $t) {
+        my $d;
+        for my $q (@QUALITY) {
+            $d = $abq->{$q} or next;
+            $self->_set_quality($q);
+            last;
+        }
+        if (!$d) {
+            warn "No known qualities.";
+            my $qu = (keys %$abq)[0];
+            warn "Setting unrecognised quality:", Y $qu;
+            $self->_set_quality($qu);
+            $d = $abq->{$qu};
+        }
+
+        my $e;
+
+        for my $t (@TYPES) {
+            $e = $d->{$t} or next;
+            $self->_set_type($t);
+            return 1;
+        }
+
+        warn "No known types.";
+        my $ty = (keys %$abt)[0];
+        warn "Setting unrecognised quality:", Y $ty;
+        $self->_set_type($ty);
+        return 1;
+    }
 }
 
 sub rotate {
@@ -447,32 +574,4 @@ sub check {
 
 
 __END__
-
-    if($outfile_exists) {
-        $Outfile_size = (stat $Out_file)->size;
-    #    my $start = (stat $Out_file)->size;
-    #    $start++;
-    my $start = 171226943;
-        $opt_q or say "Resuming from ", G $start, " bytes";
-    $o .= 'resume';
-
-    $url .= "&range=$start-";
-
-    #TWO PROBLEMS:
-    #clobbers the file, and is unreadable as movie, probably because you have to
-    #go left a bit or right a bit.
-    #maybe give params to url?
-        #@range = (':range' => "bytes=$start-");
-    }
-
-
-    $M == DETACH and $meta_thread->join;
-    my $meta_thread = async { metadata_file() };
-
-    #$quiet or threads->create(\&progress)->detach;
-
-    ## resumes if necessary (in contrast to ->get)
-    # doesn't do what i thought.
-    #$res = $ua->mirror($url, $o);
-
 

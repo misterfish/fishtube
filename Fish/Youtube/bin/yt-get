@@ -44,30 +44,28 @@ $| = 1;
 my $G = 'Fish::Youtube::Get';
 
 my @TYPES = $G->types;
-my @QUALITY = $G->quality;
+my @QUALITY = $G->qualities;
 
-@TYPES = (@TYPES[0..2], 'tmp', @TYPES[3..$#TYPES]);
+#@TYPES = (@TYPES[0..2], 'tmp', @TYPES[3..$#TYPES]);
 
 my $USAGE;
 {
     my $f = join '/', @TYPES;
     my $q = join '/', @QUALITY;
-    $USAGE = "Usage: $0 [-v] [-q quiet] [-t tmpdir] [-f to force] [-o output-file] [-d dir, ignored if -o is abs] [-q $q] [-F $f] [-T if not terminal] [-p to provide prompt if preferred qual/type not available; otherwise try fallbacks] [-P always prompt (ignore -p)] youtube-url ";
+    $USAGE = "Usage: $0 [-v] [-t tmpdir] [-f to force] [-o output-file] [-d dir, ignored if -o is abs] [-Q $q] [-F $f] [-T if not terminal] [-p prompt, ignore prefs ] youtube-url ";
 }
 
 our $opt_T;
 our $opt_d;
 our $opt_o;
 our $opt_f;
-our $opt_q;
 our $opt_t;
 our $opt_Q;
 our $opt_F;
 our $opt_p;
-our $opt_P;
 our $opt_v;
 
-getopts('Q:F:fo:kvt:qd:TpPv');
+getopts('Q:F:fo:kvt:d:Tpv');
 
 disable_colors() if $opt_T;
 
@@ -82,70 +80,43 @@ my $get = Fish::Youtube::Get->new(
     $opt_o ? (out_file => $opt_o) : (),
     $opt_d ? (dir => $opt_d) : (),
     force => $opt_f ? 1 : 0,
-    #quiet => $opt_q ? 1 : 0,
+
+    preferred_quality => $p_qual,
+    preferred_type => $p_type,
+
+    # hard
+    is_tolerant_about_quality => 1,
+    is_tolerant_about_type => 1,
 
     url => $url,
 );
 
-my $avail = $get->get_avail or error "Can't get info.";
-
 if ($opt_v) {
-    say datadump $avail;
+    #say datadump $get->avail_by_quality;
+    #say datadump $get->avail_by_type;
 }
 
 my $type;
 my $quality;
 
 # always prompt
-if ($opt_P) {
+if ($opt_p) {
     ($quality, $type) = prompt();
+    $get->set($quality, $type);
 }
 else {
-    
-    ($quality, $type) = $get->check($p_qual, $p_type);
-
-    # couldn't get preferred
-    if (!$type || !$quality) {
-        if ($opt_p) {
-            # got preferred qual but not type
-            if ($quality) {
-                D 'Got preferred quality, prompting for type.';
-                $type = prompt($quality);
-            }
-            else {
-                D "Prompting for quality and type.";
-                ($quality, $type) = prompt();
-            }
-        }
-        else {
-            if ($quality) {
-                D 'Got preferred quality but not type.';
-                $type = $get->fallback($p_type, $p_qual, $quality);
-            }
-            else {
-                D "Getting fallback quality and type.";
-                ($quality, $type) = $get->fallback($p_type, $p_qual);
-            }
-        }
-    }
-
-    else { 
-        #ok
-    }
+    $quality = $get->quality or die;
+    $type = $get->type or die;
 }
 
-$quality and $type or die;
-
-D 'Getting', 'quality', $quality, 'type', $type;
-
-$get->set($quality, $type) or die;
+$opt_v and D 'Getting', 'quality', $quality, 'type', $type;
 
 my $of = $get->out_file;
 
-D 'Output file', $of;
+$opt_v and D 'Output file', $of;
 
 if (my ($ext) = ($of =~ /\.([^\.]+)$/)) {
-    if ($type !~ m|^video/ (x-)? $ext |x) {
+    if ($type !~ m|^(x-)? $ext |x) {
         war "Warning: type is", Y $type, "but extension is", R $ext;
     }
 }
@@ -222,20 +193,13 @@ sub make_menu {
 }
 
 sub prompt {
-    my $qual = shift;
-
+    my $avail = $get->avail;
     my @qual = grep { defined $avail->{$_} } @QUALITY;
 
-    if (! $qual) {
-        $qual = make_menu(@qual);
-    }
+    my $qual = make_menu(@qual);
 
-    D 'got qual', $qual;
     my %h = hash $avail->{$qual};
     my $t = make_menu(keys %h);
-
-    #$get_url = $h{$t};
-    #D 'got url', $get_url;
 
     return ($qual, $t);
 }
