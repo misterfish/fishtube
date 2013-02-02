@@ -17,9 +17,18 @@ BEGIN {
 
 use 5.10.0;
 
+use Time::HiRes 'sleep';
+
 use strict;
 use warnings;
 
+use threads;
+use threads::shared;
+
+use File::stat;
+use Getopt::Std;
+
+use Fish::Youtube::Get;
 use Fish::Youtube::Utility;
 
 sub error;
@@ -27,47 +36,209 @@ sub war;
 
 $| = 1;
 
-my $USAGE = "Usage: $0 [-v] [-q quiet] [-t tmpdir] [-f to force] [-o output-file] [-d dir, ignored if -o is abs] [-s small/medium/large/hd720/hd1080] [-T if not terminal] youtube-url ";
+my $G = 'Fish::Youtube::Get';
+
+my @TYPES = $G->types;
+my @QUALITY = $G->quality;
+
+@TYPES = (@TYPES[0..2], 'tmp', @TYPES[3..$#TYPES]);
+
+my $USAGE;
+{
+    my $f = join '/', @TYPES;
+    my $q = join '/', @QUALITY;
+    $USAGE = "Usage: $0 [-v] [-q quiet] [-t tmpdir] [-f to force] [-o output-file] [-d dir, ignored if -o is abs] [-q $q] [-F $f] [-T if not terminal] [-p to provide prompt if preferred qual/type not available; otherwise try fallbacks] [-P always prompt (ignore -p)] youtube-url ";
+}
 
 our $opt_T;
 our $opt_d;
 our $opt_o;
 our $opt_f;
-our $opt_s;
-our $opt_t;
 our $opt_q;
+our $opt_t;
+our $opt_Q;
+our $opt_F;
+our $opt_p;
+our $opt_P;
+our $opt_v;
 
-getopts('s:fo:kvt:qd:T');
+getopts('Q:F:fo:kvt:qd:TpPv');
 
 disable_colors() if $opt_T;
 
 my $url = shift or error "$USAGE";
 $Fish::Youtube::Utility::LOG_LEVEL = 1;
 
-use Fish::Youtube::Get;
+my $p_qual = $opt_Q // 'medium';
+my $p_type = $opt_F // 'mp4';
 
 my $get = Fish::Youtube::Get->new(
-    dir => $opt_d,
-    out_file => $opt_o,
-    force => $opt_f,
-    quiet => $opt_q,
-    tmp => $opt_t,
+    $opt_t ? (tmp => $opt_t) : (),
+    $opt_o ? (out_file => $opt_o) : (),
+    $opt_d ? (dir => $opt_d) : (),
+    $opt_T ? (no_terminal => 1) : (),
+    force => $opt_f ? 1 : 0,
+    quiet => $opt_q ? 1 : 0,
+
     url => $url,
 );
 
-my $avail = $get->avail;
+$get->get_avail;
 
-for my $qual (keys %$avail) {
-    D 'qual', $qual;
-    my $d = $avail{$qual};
-    for my $type (keys %$d) {
-        D 'type', $type;
-        my $url = $d->{$type};
-        D 'url', $url;
+my $avail = $get->avail or error "Can't get info.";
+
+if ($opt_v) {
+    say datadump $avail;
+}
+
+#delete $avail->{small};
+
+#my $get_url;
+
+my $type;
+my $quality;
+
+# always prompt
+if ($opt_P) {
+    ($quality, $type) = prompt();
+}
+else {
+    if (my $d = $avail->{$p_qual}) {
+        $quality = $p_qual;
+        for my $t (keys %$d) {
+            D2 'type', $t;
+            if ($t =~ /video\/$p_type/) {
+                D2 'got preferred type', $t;
+                #$get_url = $d->{$t};
+
+                $type = $t;
+
+                last;
+            }
+        }
+    }
+    # couldn't get preferred
+    if (!$type || !$quality) {
+        if ($opt_p) {
+            # got preferred qual but not type
+            if ($quality) {
+                D 'Got preferred quality but not type.';
+                $type = prompt($quality);
+            }
+            else {
+                D "Didn't get preferred quality or type.";
+                ($quality, $type) = prompt();
+            }
+        }
+        else {
+            my (@q, @t);
+            if ($quality) {
+                @q = $quality;
+                #e.g. (1,2,3,4) -> (3,4,1,2)
+                @t = rotate(\@TYPES, $p_type);
+                D 'rotated', @t;
+            }
+            else {
+                @q = rotate(\@QUALITY, $p_qual);
+                @t = rotate(\@TYPES, $p_type);
+            }
+
+            for my $q (@q) {
+                my $d = $avail->{$q} or next;
+                for my $t (@t) {
+                    for my $k (keys %$d) {
+                        if ($k =~ /video\/$t/) {
+                            $quality = $q;
+                            $type = $t;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else { 
+        #ok
     }
 }
 
-#$opt_s
+$quality and $type or die;
+
+my $of = $get->out_file;
+DC 'quality', $quality, 'type', $type;
+D 'out_file', $of;
+
+if (my ($ext) = ($of =~ /\.([^\.]+)$/)) {
+    if ($type !~ m|^video/ (x-)? $ext |x) {
+        war "Warning: type is", Y $type, "but extension is", R $ext;
+    }
+}
+
+$get->set($quality, $type) or die;
+
+my $size = $get->get_size;
+
+async { progress($size, $of) }->detach;
+
+$get->get;
+
+sub progress {
+    my $size = shift;
+    my $of = shift;
+
+    my $first = 1;
+    while ( 1 ) {
+        $first ? $first = 0 : sleep .5 ;
+
+        -e $of or next;
+
+        my $a = nice_bytes_join (stat($of)->size);
+        my $b = nice_bytes_join ($size);
+
+        my $s = sprintf "%s / %s", BB $a, Y $b;
+
+        print "\r" . " " x 40 . "" x 40;
+        printf $s;
+    }
+}
+=cut
+=head
+    my $url;
+    if (my $d = $avail->{$qual}) {
+        D 'got preferred qual', $qual;
+        for my $t (keys %$d) {
+            D 'type', $t;
+            if ($t =~ /video\/$type/) {
+                D 'got preferred type', $t;
+                $url = $d->{$t};
+                last;
+            }
+        }
+        # Just get any type
+        if (!$url) {
+            my $t = (keys %$d)[0];
+            $url = $d->{$t};
+            D 'picking random type', 'type', $t, 'url', $url;
+        }
+    }
+    else {
+        D "couldn't get preferred size";
+        
+    }
+    if (!$url) {
+        D "Couldn't get url.";
+    }
+
+    for my $qual (keys %$avail) {
+        D 'qual', $qual;
+        my $d = $avail->{$qual};
+        for my $type (keys %$d) {
+            D 'type', $type;
+            my $url = $d->{$type};
+            D 'url', $url;
+        }
+    }
+}
+=cut
 
 exit;
 
@@ -79,6 +250,67 @@ sub error {
 sub war {
     my @s = @_;
     warn join ' ', @s, "\n";
+}
+
+sub make_menu {
+    my @opts = @_;
+    my $n = scalar @opts;
+    my $width = length $n - 1;
+    my $i = 0;
+    say sprintf("%${width}d. %s", ++$i, $_) for @opts;
+    my $res;
+    local $\ = undef;
+    while (!$res) {
+        print "> ";
+        my $a = <STDIN>;
+        next unless $a;
+        chomp $a;
+        $a =~ s/\s//g;
+        next if $a =~ /\D/;
+        next if $a < 1;
+        $res = $opts[$a - 1];
+    }
+    return $res;
+}
+
+sub rotate {
+    my ($list, $start) = @_;
+    my @list = @$list;
+                my $i = -1;
+    my (@l, @r);
+    if ($start ~~ $list) {
+        for (@list) {
+            $i++;
+            if ($_ eq $p_type) {
+                @r = splice @list, 0, $i;
+                shift @list;
+                @l = @list;
+                return (@l, @r);
+            }
+        }
+    }
+    else {
+        return @$list;
+    }
+}
+
+sub prompt {
+    my $qual = shift;
+
+    my @qual = grep { defined $avail->{$_} } @QUALITY;
+
+    if (! $qual) {
+        $qual = make_menu(@qual);
+    }
+
+    D 'got qual', $qual;
+    my %h = hash $avail->{$qual};
+    my $t = make_menu(keys %h);
+
+    #$get_url = $h{$t};
+    #D 'got url', $get_url;
+
+    return ($qual, $t);
 }
 
 
