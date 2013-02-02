@@ -6,23 +6,21 @@ use Moose;
 
 use 5.10.0;
 
-use threads;
-use threads::shared;
+#use threads;
+#use threads::shared;
 
 use Term::ANSIColor;
 use Data::Dumper 'Dumper';
-use Time::HiRes 'sleep';
+
 use HTTP::Cookies;
 use LWP::UserAgent;
 use URI::Escape qw/ uri_unescape uri_escape /;
-use Getopt::Std;
 use HTML::Entities qw/ decode_entities encode_entities /;
-use File::stat;
+
 use Fish::Youtube::Utility;
 
 #use POSIX ':sys_wait_h';
 
-sub error;
 sub war;
 
 $SIG{INT} = $SIG{KILL} = sub { exit(1) };
@@ -36,22 +34,26 @@ my $Content_length = undef;
 my $Outfile_size = 0;
 my $Yt_file;
 
-has immediate_fork => (
-    is  => 'ro',
-    isa => 'Bool',
-    default => 0,
-);
-
 # optional, determined from title if missing
 has out_file => (
-    is  => 'ro',
+    is  => 'rw',
     isa => 'Str',
+);
+
+has size => (
+    is => 'rw',
+    isa => 'Num',
 );
 
 has debug => (
     is  => 'ro',
     isa => 'Bool',
     default => 0,
+);
+
+has quiet => (
+    is  => 'ro',
+    isa => 'Bool',
 );
 
 has force => (
@@ -69,7 +71,7 @@ has dir => (
 has tmp => (
     is  => 'rw',
     isa => 'Str',
-    default => $DEFAULT_TMP;
+    default => $DEFAULT_TMP,
 );
 
 has avail => (
@@ -88,35 +90,18 @@ has ua => (
     isa => 'LWP::UserAgent',
 );
 
-# get something based on preferred_xxx
-
-has immediate_fork => (
-    is  => 'ro',
-    isa => 'Bool',
-    default => 0,
-);
-
 my @QUALITY = qw/ small medium large hd720 hd1080 /;
-has preferred_quality => (
-    is  => 'ro',
+
+my $DEFAULT_QUALITY = 'medium';
+my $DEFAULT_TYPE = 'x-flv';
+
+has _movie_url => (
+    is  => 'rw',
     isa => 'Str',
-    default => 'small',
 );
 
-my @QUALITY_ORDER = qw/ asc desc /;
-has preferred_quality_order => (
-    is  => 'ro',
-    isa => 'Str',
-    default => 'asc';
-);
-
-# flv / mp4
-my @TYPES = qw/ flv mp4 /;
-has preferred_type => (
-    is  => 'ro',
-    isa => 'Str',
-    default => 'mp4',
-);
+# x-flv / mp4 / webm / 3gpp / [others?]
+my @TYPES = qw/ mp4 x-flv webm 3gpp /;
 
 sub d2 {
     my ($self, @d) = @_;
@@ -126,21 +111,17 @@ sub d2 {
 sub BUILD {
     my ($self, $args) = @_;
 
+    defined $self->size and die "don't set size";
+
     my $Out_file;
 
     my $ua = LWP::UserAgent->new;
     $self->ua($ua);
 
-    if ($self->immediate_fork) {
-        $self->preferred_quality ~~ [@QUALITY] or error "Invalid quality.";
-        $self->preferred_quality_order ~~ [@QUALITY_ORDER] or error "Invalid quality order.";
-        $self->preferred_type ~~ [@TYPES] or error "Invalid type.";
-    }
-
     $ua->agent('Mozilla/5.0 (X11; Linux i686; rv:10.0.5) Gecko/20100101 Firefox/10.0.5 Iceweasel/10.0.5');
 
     my $cookie_jar = HTTP::Cookies->new(
-        file     => "$Tmp/yt-cook.txt",
+        file     => $self->tmp . "/yt-cook.txt",
         autosave => 1,
     );
     $ua->cookie_jar( $cookie_jar );
@@ -149,19 +130,17 @@ sub BUILD {
     $ua->timeout(0);
 
     my $YT_FILE = ".yt-file";
-    $Yt_file = "$Tmp/$YT_FILE-$$";
-
-    my $quiet = $self->quiet;
-    $quiet or D 'url', $Url;
+    $Yt_file = $self->tmp . "/$YT_FILE-$$";
 }
 
-sub get_metadata {
+sub get_avail {
     my ($self) = @_;
-    my $res = $ua->get($self->url);
+    my $res = $self->ua->get($self->url);
 
-    local $Fish::Youtube::LOG_LEVEL = 2 if $self->debug;
-
-    $res->is_success or die $res->status_line ;
+    if (!$res->is_success) {
+        war "Can't get avail:", Y $res->status_line ;
+        return;
+    }
 
     # can be partial content ... apparently still timing out sometimes?
 
@@ -193,13 +172,10 @@ sub get_metadata {
     my $dir = $self->dir;
     # rel -- put dir
     if ($dir and $of !~ /^\//) {
-        $of .= $dir . "/$Out_file";
+        $of .= $dir . "/" . $self->out_file;
     }
 
-    $self->of($of);
-
-    $quiet or D 'pid yg', $$;
-    $quiet or D 'out file', $of;
+    $self->out_file($of);
 
     if (-e $of and ! $self->force) {
         my $pwd = sys_chomp 'pwd';
@@ -207,11 +183,16 @@ sub get_metadata {
             $of = "$pwd/$of";
         }
         utf8::encode($of);
-        error Y $of, "exists, exiting.";
+        war Y $of, "exists";
+        return;
     }
     sys qq, touch "$of" ,;
 
-    my $data = extract_urls(\$c);
+    my $data = $self->extract_urls(\$c);
+    if (!$data) {
+        war "Couldn't get avail.";
+        return;
+    }
     $self->d2('data', $data);
 
     $self->avail($data);
@@ -219,40 +200,81 @@ sub get_metadata {
     return $data;
 }
 
-sub get {
+sub set {
     my ($self, $quality, $type) = @_;
-    local $Fish::Youtube::LOG_LEVEL = 2 if $self->debug;
-
-    my $url = $self->data{$quality}{$type};
-
-    if (!$url) {
-        warn "Couldn't get preferred url based on qual/type; using first.";
-        die;
-        #$url = $self->data{
+    #$self->_quality($quality);
+    #$self->_type($type);
+    if (my $u = $self->avail->{$quality}{$type}) {
+        $self->_movie_url($u);
     }
+    else {
+        war "Invalid quality and type", Y $quality, B $type;
+        return 0;
+    }
+    return 1;
+}
+
+sub set_defaults {
+    my ($self) = @_;
+    return $self->set($DEFAULT_QUALITY, $DEFAULT_TMP);
+}
+
+sub get_size {
+    my ($self) = @_;
+    my $url = $self->_movie_url;
+    if (!$url) {
+        war "First call set() or set_defaults()";
+        return;
+    }
+
+    my $ua = $self->ua;
 
     my $u_sub = substr($url, 0, 20) . "...";
 
-    $self->d2('url', $url);
-    $self->d2('Out_file', $Out_file);
-
-    $self->ua->add_handler( response_header => sub {
+    my $cl;
+    $ua->add_handler( response_header => sub {
         my ( $res, $ua, $h ) = @_;
-        $Content_length = $res->header('content-length');
+        $cl = $res->header('content-length');
     });
 
-    my @range = ();
+    $ua->max_size(1);
+    $ua->get($url);
+
+    $self->d2('got cl', $cl);
+
+    return $cl;
+}
+
+sub get {
+    my ($self) = @_;
+
+    my $url = $self->_movie_url;
+    if (!$url) {
+        war "First call set() or set_defaults()";
+        return;
+    }
+
+    my $ua = $self->ua;
+
+    my $u_sub = substr($url, 0, 20) . "...";
+
+    my $of = $self->out_file;
+
+    #$self->d2('url', $url);
+    #$self->d2('Out_file', $of);
+
+#my @range = ();
 
     $self->d2('url', $url);
 
+    $ua->max_size(undef);
     my $res = $ua->get($url,
         ':content_file'     => $of,
     );
-
 }
 
 sub extract_urls {
-    my $c_r = shift;
+    my ($self, $c_r) = @_;
     my $c = $$c_r;
 
     #$url = $ret{$qual}{$size} 
@@ -267,10 +289,11 @@ sub extract_urls {
         my $u = $1;
         if (!$u) {
             D 'Failed content', $c;
-            error "Couldn't find url_encoded_fmt_stream_map in content.";
+            war "Couldn't find url_encoded_fmt_stream_map in content.";
+            return;
         }
 
-        @urls = split /,/, $_u;
+        @urls = split /,/, $u;
     }
 
     for my $u (@urls) {
@@ -302,7 +325,6 @@ sub extract_urls {
             # check here later for more formats.
             next;
         }
-        #elsif ($u =~ /^ url /x) {
         elsif ($u =~ / url /x) {
             warn "Not implemented: url";
         }
@@ -314,62 +336,10 @@ sub extract_urls {
     return \%ret;
 }
 
-    sub metadata_file {
-        while (1) {
-            # set in main thread
-            defined $Out_file and last;
-            $self->d2('waiting for out_file');
-            sleep .5;
-        }
-        $self->d2('got out', $Out_file);
-        my $o = $Out_file;
-        utf8::decode $o;
-        while (1) {
-            # set in main thread
-            defined $Content_length and last;
-            $self->d2('waiting for content_length');
-            sleep .5;
-        }
-        $self->d2('got cl', $Content_length);
-        open my $fh, ">:utf8", "$Yt_file" or die "$Yt_file: $!";
+sub types { @TYPES }
+sub quality { @QUALITY }
 
-        say $fh $o;
-        say $fh $Content_length;
-
-        $self->d2('printed to out', $Yt_file);
-    }
-
-    ## resumes if necessary (in contrast to ->get)
-    # doesn't do what i thought.
-    #$res = $ua->mirror($url, $o);
-
-    if ( ! $res->is_success ) {
-        warn sprintf "error with url (%s): %s", $u_sub, $res->status_line;
-    }
-
-    say STDERR '';
-
-}
-
-sub progress {
-    my $first = 1;
-    while ( 1 ) {
-        $first ? $first = 0 : sleep .5 ;
-        if (!$Content_length) {
-            sleep .5;
-            next;
-        }
-
-        my $offset = $Outfile_size || 0;
-        my $a = nice_bytes (stat($Out_file)->size);
-        my $b = nice_bytes ($Content_length + $offset);
-
-        my $s = sprintf "%s / %s", B $a, B $b;
-
-        print STDERR "\r" . " " x 40 . "" x 40;
-        printf STDERR $s;
-    }
-}
+1;
 
 sub END {
 #    if ($Yt_file) {
@@ -379,11 +349,6 @@ sub END {
 }
 
 
-
-sub error {
-    my @s = @_;
-    die join ' ', @s, "\n";
-}
 
 sub war {
     my @s = @_;
@@ -415,3 +380,9 @@ __END__
     my $meta_thread = async { metadata_file() };
 
     #$quiet or threads->create(\&progress)->detach;
+
+    ## resumes if necessary (in contrast to ->get)
+    # doesn't do what i thought.
+    #$res = $ua->mirror($url, $o);
+
+

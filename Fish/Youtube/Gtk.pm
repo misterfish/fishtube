@@ -319,17 +319,35 @@ sub init {
 
     $outer_box->pack_end($status_table, 0, 0, 10);
 
-    if (1) {
+    if (0) {
         my $b = Gtk2::Button->new('a');
         $b->signal_connect('clicked', sub {
                 state $i = 0;
                 # some debug
 
-                my $j :shared = $i;
+                my $t = 'Fish::Youtube::Test';
+                my $qi = $t->queue_idle;
 
-                my $tid = $Fish::Youtube::Test::Queue_idle->dequeue;
+                my $j = ('a', 'b')[$i];
+
+                D $j;
+                my $tid = $qi->dequeue;
                 return if $tid < 0; # ?
-                $Fish::Youtube::Test::Queues_work{$tid}->enqueue(\$j);
+                my $qw = $t->queues_work->{$tid};
+                my $qr = $t->queues_response->{$tid};
+                my $msg = { url => $j };
+                $qw->enqueue($msg);
+
+                $qw = $t->queues_work->{$tid};
+                my $response = $qr->dequeue;
+
+                my @choices = @$response;
+
+                my $choice = list_choice_dialog(\@choices, "Choose quality", {allow_cancel => 1});
+
+                D 'choice', $choice;
+                my $msg2 = $choice ? { size => $choice } : {};
+                $qw->enqueue($msg2);
 
                 $i++;
             });
@@ -1315,13 +1333,31 @@ sub profile_dialog {
     # name => dir
     my %profiles = %$profiles;
 
-    #Gtk2::Gdk::Threads->enter;
+    my $a = list_choice_dialog(\%profiles, "Choose profile:");
+}
+
+sub list_choice_dialog {
+    my ($choices, $text, $opts) = @_;
+    $opts //= {};
+    my $allow_cancel = $opts->{allow_cancel} // 0;
+
+    my (@keys, %lookup);
+    if (ref $choices eq 'ARRAY') {
+        @keys = @$choices;
+        %lookup = map { $_ => $_ } @keys;
+    }
+    elsif (ref $choices eq 'HASH') {
+        @keys = keys %$choices;
+        %lookup = %$choices;
+    }
+    else { die }
+
     my $dialog = make_dialog();
 
     my $id_col = 0;
 
     my $model = Gtk2::ListStore->new ('Glib::String');
-    for (keys %profiles) {
+    for (@keys) {
         # iter, col, val
         $model->set ($model->append, $id_col, $_);
     }
@@ -1347,27 +1383,41 @@ sub profile_dialog {
     $ca->add($fr);
     $hb->pack_start($vb, 1, 0, 10);
 
-    my $l = $L->new("Choose profile:");
+    my $l = $L->new($text);
     $vb->pack_start($l, 1, 0, 10);
     $vb->pack_start($combo_box, 0, 0, 10);
 
+    my $response;
+
+    my $aa = $dialog->get_action_area;
     my $al = Gtk2::Alignment->new(0,0,0,0);
     my $ok = Gtk2::Button->new_from_stock('gtk-ok');
     $al->add($ok);
-    $dialog->get_action_area->add($al);
-    $dialog->show_all;
-
-    my $response;
+    $aa->add($al);
 
     $ok->signal_connect('clicked', sub {
         my ($self, $blah) = @_;
-        $response = $profiles{$combo_box->get_active_text} or warn;
+        $response = $lookup{$combo_box->get_active_text} or warn;
         $dialog->destroy;
     });
 
-        $dialog->run;
+    if ($allow_cancel) {
+        my $al = Gtk2::Alignment->new(0,0,0,0);
+        my $c = Gtk2::Button->new_from_stock('gtk-cancel');
+        $al->add($c);
+        $aa->add($al);
 
-        #Gtk2::Gdk::Threads->leave;
+        $c->signal_connect('clicked', sub {
+            my ($self, $blah) = @_;
+            $response = undef;
+            $dialog->destroy;
+        });
+    }
+
+    $dialog->show_all;
+
+    $dialog->run;
+
     return $response;
 }
 
