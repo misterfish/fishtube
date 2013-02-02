@@ -435,14 +435,24 @@ sub _set_params {
     my $q;
     my $t;
 
-    if ($abq->{$pq}) {
+    if (my $d = $abq->{$pq}) {
         $self->_set_quality($pq);
         $q = $pq;
+
+        if ($d->{$pt}) {
+            $self->_set_type($pt);
+            $t = $pt;
+        }
     }
 
-    if ($abt->{$pt}) {
+    elsif (my $e = $abt->{$pt}) {
         $self->_set_type($pt);
         $t = $pt;
+
+        if ($e->{$pq}) {
+            $self->_set_quality($pq);
+            $q = $pq;
+        }
     }
 
     if ($q and $t) { 
@@ -466,10 +476,7 @@ sub _set_params {
 
     if ($q) {
         my @t = rotate(\@TYPES, $pt);
-D 't', @t;
         my $d = $abq->{$q};
-
-        say datadump $d;
 
         for my $t (@t) {
             if ($d->{$t}) {
