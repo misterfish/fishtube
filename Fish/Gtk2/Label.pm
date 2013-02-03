@@ -19,6 +19,7 @@ sub new {
     my ($class, @args) = @_;
     my $self = $class->SUPER::new;
     $class->set_label($self, @args) if @args; 
+    $self->modify_bg('normal', Gtk2::Gdk::Color->new(255,255,255,255));
     bless $self, $class;
 }
 

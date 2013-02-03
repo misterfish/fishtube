@@ -16,12 +16,11 @@ use HTTP::Cookies;
 use LWP::UserAgent;
 use URI::Escape qw/ uri_unescape uri_escape /;
 use HTML::Entities qw/ decode_entities encode_entities /;
+use IO::File;
 
 use Fish::Youtube::Utility;
 
 #use POSIX ':sys_wait_h';
-
-sub war;
 
 $SIG{INT} = $SIG{KILL} = sub { exit(1) };
 
@@ -131,6 +130,22 @@ has type => (
     writer => '_set_type',
 );
 
+# wait for user to call set
+has no_init_params => (
+    is  => 'ro',
+    isa => 'Bool',
+);
+
+has error_file => (
+    is  => 'ro',
+    isa => 'Str',
+);
+
+has _efh => (
+    is  => 'rw',
+    isa => 'IO::File',
+);
+
 my @QUALITY = qw/ small medium large hd720 hd1080 /;
 
 my $DEFAULT_QUALITY = 'medium';
@@ -139,6 +154,11 @@ my $DEFAULT_TYPE = 'x-flv';
 has _movie_url => (
     is  => 'rw',
     isa => 'Str',
+);
+
+has error => (
+    is  => 'rw',
+    isa => 'Bool',
 );
 
 # x-flv / mp4 / webm / 3gpp / [others?]
@@ -159,7 +179,13 @@ sub BUILD {
     $self->preferred_type('x-flv') if $self->preferred_type eq 'flv';
 
     my $tmp = $self->tmp;
-    (-d $tmp and -w $tmp) or war("Invalid tmp:", R $tmp), return;
+    (-d $tmp and -w $tmp) or $self->war("Invalid tmp:", R $tmp), return;
+
+    if (my $ef = $self->error_file) {
+        my $fh = IO::File->new(">$ef") or $self->war("Can't open error file", Y $ef, R $!), return;
+        $self->_efh($fh);
+        $fh->autoflush(1);
+    }
 
     my $Out_file;
 
@@ -184,7 +210,7 @@ sub BUILD {
     my $res = $self->ua->get($self->url);
 
     if (!$res->is_success) {
-        war "Can't get avail:", Y $res->status_line ;
+        $self->war("Can't get avail:", Y $res->status_line );
         return;
     }
 
@@ -195,7 +221,7 @@ sub BUILD {
 
     my $data = $self->extract_urls(\$c);
     if (!$data) {
-        war "Couldn't get avail.";
+        $self->war("Couldn't get avail.");
         return;
     }
     $self->d2('data', $data);
@@ -217,9 +243,10 @@ sub BUILD {
     $self->avail_by_quality(\%abq);
     $self->avail_by_type(\%abt);
 
-    my ($quality, $type) = $self->_set_params;
-    
-    $self->set($self->quality, $self->type);
+    if (! $self->no_init_params ) {
+        $self->_set_params;
+        $self->set($self->quality, $self->type) or $self->error(1);
+    }
 }
 
 sub set {
@@ -229,7 +256,7 @@ sub set {
         $self->_movie_url($u);
     }
     else {
-        war "Invalid quality and type", Y $quality, B $type;
+        $self->war("Invalid quality and type", Y $quality, B $type);
         return 0;
     }
 
@@ -264,29 +291,12 @@ sub set {
 
     $self->out_file($of);
 
-    if (-e $of and ! $self->force) {
-        my $pwd = sys_chomp 'pwd';
-        if ($of !~ /^\//) {
-            $of = "$pwd/$of";
-        }
-        utf8::encode($of);
-        war Y $of, "exists";
-        return;
-    }
-    sys qq, touch "$of" ,;
-
-
-
     return 1;
-}
-
-sub set_defaults {
-    my ($self) = @_;
-    return $self->set($DEFAULT_QUALITY, $DEFAULT_TMP);
 }
 
 sub get_size {
     my ($self) = @_;
+    $self->error and warn, return;
     my $url = $self->_movie_url;
     if (!$url) {
         warn;
@@ -314,6 +324,19 @@ sub get_size {
 sub get {
     my ($self) = @_;
 
+    my $of = $self->out_file;
+    if (-e $of and ! $self->force) {
+        my $pwd = sys_chomp 'pwd';
+        if ($of !~ /^\//) {
+            $of = "$pwd/$of";
+        }
+        utf8::encode($of);
+        $self->war(Y $of, "exists");
+        return;
+    }
+    sys qq, touch "$of" ,;
+
+    $self->error and warn, return;
     my $url = $self->_movie_url;
     if (!$url) {
         warn;
@@ -324,19 +347,19 @@ sub get {
 
     my $u_sub = substr($url, 0, 20) . "...";
 
-    my $of = $self->out_file;
-
-    #$self->d2('url', $url);
-    #$self->d2('Out_file', $of);
-
-#my @range = ();
-
     $self->d2('url', $url);
 
     $ua->max_size(undef);
     my $res = $ua->get($url,
         ':content_file'     => $of,
     );
+
+    if (!$res->is_success) {
+        $self->war("Can't get movie:", Y $res->status_line );
+        return;
+    }
+
+    return 1;
 }
 
 sub extract_urls {
@@ -355,7 +378,7 @@ sub extract_urls {
         my $u = $1;
         if (!$u) {
             D 'Failed content', $c;
-            war "Couldn't find url_encoded_fmt_stream_map in content.";
+            $self->war("Couldn't find url_encoded_fmt_stream_map in content.");
             return;
         }
 
@@ -374,14 +397,14 @@ sub extract_urls {
             }
 
             for (qw/ url itag type fallback_host sig quality / ) {
-                $vars{$_} or warn "Couldn't find ", G $_, " in u: ", $u;
+                $vars{$_} or $self->war( "Couldn't find ", G $_, " in u: ", $u);
             }
 
             $vars{url} .= "&signature=$vars{sig}";
 
-            my $u = $vars{url} or war ("Can't find URL"), return;
-            my $q = $vars{quality} or war ("Can't find quality"), return;
-            my $t = $vars{type} or war ("Can't find type"), return;
+            my $u = $vars{url} or $self->war("Can't find URL"), return;
+            my $q = $vars{quality} or $self->war("Can't find quality"), return;
+            my $t = $vars{type} or $self->war("Can't find type"), return;
 
             $self->d2('type', $t);
             $self->d2('qual', $q);
@@ -392,10 +415,10 @@ sub extract_urls {
             next;
         }
         elsif ($u =~ / url /x) {
-            warn "Not implemented: url";
+            $self->war( "Not implemented: url");
         }
         else {
-            warn R "Didn't find", G 'itag', R 'or', G 'url', R 'in', G 'u:', BB $u;
+            $self->war( R "Didn't find", G 'itag', R 'or', G 'url', R 'in', G 'u:', BB $u);
         }
     }
 
@@ -417,8 +440,12 @@ sub END {
 
 
 sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
+    my ($self, @s) = @_;
+    my $s = join ' ', @s, "\n";
+    warn $s;
+    if (my $fh = $self->_efh) {
+        say $fh $s;
+    }
 }
 
 sub _set_params {
@@ -461,7 +488,7 @@ sub _set_params {
 
     if (not $t) {
         if (! $self->is_tolerant_about_type) {
-            war "Can't get preferred type", Y $pt, "and not tolerant.";
+            $self->war("Can't get preferred type", Y $pt, "and not tolerant.");
             return;
         }
 
@@ -469,7 +496,7 @@ sub _set_params {
 
     if (not $q) {
         if (! $self->is_tolerant_about_quality) {
-            war "Can't get preferred quality", Y $pq, "and not tolerant.";
+            $self->war("Can't get preferred quality", Y $pq, "and not tolerant.");
             return;
         }
     }
@@ -487,7 +514,7 @@ sub _set_params {
 
         # panic -- unknown type
         my $ty = (keys %$d)[0];
-        warn "Setting unrecognised type:", Y $ty;
+        $self->war( "Setting unrecognised type:", Y $ty);
         $self->_set_type($ty);
         return 1;
     }
@@ -503,7 +530,7 @@ sub _set_params {
 
         # panic -- unknown qual
         my $qu = (keys %$d)[0];
-        warn "Setting unrecognised quality:", Y $qu;
+        $self->war( "Setting unrecognised quality:", Y $qu);
         $self->_set_quality($qu);
         return 1;
     }
@@ -515,9 +542,9 @@ sub _set_params {
             last;
         }
         if (!$d) {
-            warn "No known qualities.";
+            $self->war( "No known qualities.");
             my $qu = (keys %$abq)[0];
-            warn "Setting unrecognised quality:", Y $qu;
+            $self->war( "Setting unrecognised quality:", Y $qu);
             $self->_set_quality($qu);
             $d = $abq->{$qu};
         }
@@ -530,9 +557,9 @@ sub _set_params {
             return 1;
         }
 
-        warn "No known types.";
+        $self->war( "No known types.");
         my $ty = (keys %$abt)[0];
-        warn "Setting unrecognised quality:", Y $ty;
+        $self->war( "Setting unrecognised quality:", Y $ty);
         $self->_set_type($ty);
         return 1;
     }

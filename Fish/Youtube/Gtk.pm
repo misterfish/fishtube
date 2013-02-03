@@ -3,7 +3,7 @@ package Fish::Youtube::Gtk;
 # needs refactor -- too much crap in this module
 
 
-use Fish::Youtube::Test;
+use Fish::Youtube::DownloadThreads;
 
 use 5.10.0;
 
@@ -84,7 +84,11 @@ my $STATUS_PROP = .7;
 
 my $SCROLL_TO_TOP_ON_ADD = 1;
 
-my $OUTPUT_DIR_TXT = "Output dir:";
+my $T = o(
+    output_dir => "Output dir:",
+    pq  => "Preferred quality:",
+    pt  => "Preferred type:",
+);
 
 my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
 
@@ -111,6 +115,14 @@ my $W_im = o(
     #prog => Gtk2::Image->new,
 );
 
+my $W_eb = o(
+    pq          => Gtk2::EventBox->new,
+    pt          => Gtk2::EventBox->new,
+    od          => Gtk2::EventBox->new,
+    info        => Gtk2::EventBox->new,
+    cancel_btn  => Gtk2::EventBox->new,
+);
+
 my $W_sl = o(
     # is a Treeview
     hist => Gtk2::SimpleList->new ( 
@@ -124,10 +136,17 @@ my $W_ly = o(
 
 my $W_lb = o(
     od => Fish::Gtk2::Label->new,
+    pq => Fish::Gtk2::Label->new,
+    pt => Fish::Gtk2::Label->new,
 );
 
 my $W_sb = o(
     main => Gtk2::Statusbar->new,
+);
+
+my $W_tb = o(
+    # row, col, homog
+    options => Gtk2::Table->new(2,3,0),
 );
 
 my $Tree_data_magic;
@@ -174,6 +193,14 @@ my $G = o(
     # auto add methods last_xxx_inc, last_xxx_dec.
     '+-last_mid' => -1,
     '+-last_idx' => -1,
+
+    # medium
+    preferred_quality => 1,
+    # mp4
+    preferred_type => 0,
+
+    qualities => [ Fish::Youtube::Get->qualities ],
+    types => [ Fish::Youtube::Get->types ],
 
 );
 
@@ -242,12 +269,13 @@ sub init {
     $lwf->add($W_sw->left);
     $l->add($lwf);
 
+    $W_eb->$_->modify_bg('normal', $Col->white) for keys %$W_eb;
+
     my $button_add = Gtk2::EventBox->new;
     $button_add->add(Gtk2::Image->new_from_file($G->img('add')));
     $button_add->signal_connect('button-press-event', sub {
         my $response = inject_movie();
     });
-    $button_add->modify_bg('normal', $Col->white);
 
     set_cursor_timeout($button_add, 'hand2');
 
@@ -269,16 +297,25 @@ sub init {
 
     my $outer_box = Gtk2::VBox->new;
 
-    # want to flush label right but doesn't work
-    my $status_bar_dir_box = Gtk2::EventBox->new;
-    $status_bar_dir_box->modify_bg('normal', $Col->white);
+    {
+        my $b = $W_eb->od;
 
-    $status_bar_dir_box->add($W_lb->od);
-    set_cursor_timeout($status_bar_dir_box, 'hand2');
+        $b->add($W_lb->od);
+        set_cursor_timeout($b, 'hand2');
 
-    $status_bar_dir_box->signal_connect('button-press-event', sub {
-        do_output_dir_dialog();
-    });
+        $b->signal_connect('button-press-event', sub {
+            do_output_dir_dialog();
+        });
+    }
+
+    for ('pq', 'pt') {
+        my $eb = $W_eb->$_;
+        $eb->add($W_lb->$_);
+        set_cursor_timeout($eb, 'hand2');
+        $eb->signal_connect('button-press-event', sub {
+                #
+        });
+    }
 
     $W_lb->od->modify_bg('normal', $Col->black);
 
@@ -286,30 +323,51 @@ sub init {
     # fill has no effect if expand is 0.
     $outer_box->pack_start($W_hp->main, 1, 1, 0);
 
-    $W_lb->od->set_label("$OUTPUT_DIR_TXT", { size => 'small', color => 'red'});
+    $W_lb->od->set_label($T->output_dir, { size => 'small', color => 'red'});
 
-    my $auto_start_cb = Gtk2::CheckButton->new('');
-    $auto_start_cb->set_active(1);
-    $auto_start_cb->signal_connect('toggled', sub {
-        state $state = 1;
-        $state = !$state;
-        $G->auto_start_watching($state);
-    });
-    {
-        my $l = ($auto_start_cb->get_children)[0];
-        $L->set_label($l, "Auto start ($AUTO_WATCH_PERC%)", { size => 'small' });
-    }
-    my $status_bar_right_hbox = Gtk2::HBox->new(0);
-    $status_bar_right_hbox->pack_start($auto_start_cb, 0, 0, 10);
-    $status_bar_right_hbox->pack_start($status_bar_dir_box, 0, 0, 10);
+    $W_lb->pq->set_label($T->pq . $G->qualities->[$G->preferred_quality], { size => 'small' });
+    $W_lb->pt->set_label($T->pt . $G->types->[$G->preferred_type], { size => 'small' });
 
-    # row, col, homog
-    my $status_table = Gtk2::Table->new(1, 2, 0);
     # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
     my $oo = [qw/ expand shrink fill /];
     my $ooo = 'shrink';
-    $status_table->attach($W_sb->main, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
-    $status_table->attach($status_bar_right_hbox, 1, 2, 0, 1, $ooo, $ooo, 10, 10);
+
+    {
+        my $auto_start_cb = Gtk2::CheckButton->new('');
+        $auto_start_cb->set_active(1);
+        $auto_start_cb->signal_connect('toggled', sub {
+            state $state = 1;
+            $state = !$state;
+            $G->auto_start_watching($state);
+        });
+        {
+            my $l = ($auto_start_cb->get_children)[0];
+            $L->set_label($l, "Auto start ($AUTO_WATCH_PERC%)", { size => 'small' });
+        }
+
+        my $t = $W_tb->options;
+        $t->attach($W_sb->main, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
+        $t->attach(left($auto_start_cb), 1, 2, 0, 1, $ooo, $ooo, 10, 10);
+        $t->attach($W_eb->od, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
+
+        #$t->attach($W_eb->pq, 1, 2, 1, 2, $ooo, $ooo, 10, 10);
+        #$t->attach($W_eb->pt, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
+
+        my $vb = Gtk2::VBox->new;
+        {
+            my $al = Gtk2::Alignment->new(0,0,0,0);
+            $al->add($W_eb->pq);
+            $vb->add($al);
+        }
+        {
+            my $al = Gtk2::Alignment->new(0,0,0,0);
+            $al->add($W_eb->pt);
+            $vb->add($al);
+        }
+        $t->attach($vb, 1, 2, 1, 2, $ooo, $ooo, 10, 10);
+
+        $outer_box->pack_end($t, 0, 0, 10);
+    }
 
     $W_sb->main->set_size_request($G->width * .7, -1);
 
@@ -317,53 +375,13 @@ sub init {
 
     $W_sb->main->set_has_resize_grip(0);
 
-    $outer_box->pack_end($status_table, 0, 0, 10);
 
     if (0) {
         my $b = Gtk2::Button->new('a');
         $b->signal_connect('clicked', sub {
-                state $i = 0;
                 # some debug
+        });
 
-                my $t = 'Fish::Youtube::Test';
-                my $qi = $t->queue_idle;
-
-                my $j = ('a', 'b')[$i];
-
-                D $j;
-                my $tid = $qi->dequeue;
-                return if $tid < 0; # ?
-
-                my $qw = $t->queues_work->{$tid};
-                my $qr = $t->queues_response->{$tid};
-
-                my $msg = { url => "http://www.youtube.com/watch?v=QARALafdWUI" };
-                $qw->enqueue($msg);
-
-                $qw = $t->queues_work->{$tid};
-                my $response = $qr->dequeue;
-
-                #my ($qual, $type) = @$response;
-                my @choices = @$response;
-
-                #D 'main: ', 'qual', $qual, 'type', $type;
-
-                my $choice = list_choice_dialog(\@choices, "Choose quality", {allow_cancel => 1});
-
-                my $msg2 = $choice ? { size => $choice } : {};
-                $qw->enqueue($msg2);
-
-                my $response2 = $qr->dequeue;
-                my @choices2 = @$response2;
-
-                my $choice2 = list_choice_dialog(\@choices2, "Choose format", {allow_cancel => 1});
-
-                my $msg3 = $choice2 ? { type => $choice2 } : {};
-                $qw->enqueue($msg3);
-
-
-                $i++;
-            });
         $outer_box->add($b);
     }
 
@@ -568,6 +586,7 @@ sub row_activated {
     my $d = $G->movie_data->[$row_idx] or die;
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
+        set_cursor($W, 'clock');
     start_download($u, $t, $mid);
 }
 
@@ -589,7 +608,7 @@ sub start_download {
 
     my $box;
 
-    my $tmp = main::get_tmp_dir();
+    #my $tmp = main::make_tmp_dir();
 
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
@@ -604,52 +623,30 @@ sub start_download {
     my $manual;
     my $of;
 
-    my $force_get;
+my $prefq = '';
+my $preft = '';
+my $itaq = -1;
+my $itat = -1;
+
+    my $async = 1;
+    $async = 0 unless $prefq && $preft;
 
     # manual download -- get name from youtube-get
     if (! $t) {
         $manual = 1;
-
-        # overwrite if exists
-        $force_get = 1;
     } 
     
     else {
-        $t =~ s/^\s+//;
-        $t =~ s/\s+$//;
+        # if any prompting, we can't know outfile. 
+        # otherwise, set it here, to allow async
 
-        $t =~ s/[\n:!\*<>\`\$]//g;
+        if ($async) {
+            $of = "$Output_dir/$t.EXT";
 
-        $t =~ s|/|-|g;
-        $t =~ s|\\|-|g;
-        $t =~ s/"/'/g;
+            main::sanitize_filename(\$of);
 
-        $of = "$Output_dir/$t.flv";
-
-        if (-r $of) {
-            my $dialog = Gtk2::MessageDialog->new ($W,
-                'modal',
-                'question', # message type
-                'yes-no', # which set of buttons?
-                "File '%s' exists; overwrite?", $of);
-
-            my $response;
-
-            $dialog->signal_connect('response', sub {
-                my ($self, $res) = @_;
-                $response = $res;
-                $dialog->destroy;
-            });
-
-            $dialog->run;
-
-            if ($response ne 'yes') {
-                return;
-            }
-
-            if (! sys_ok qq, rm -f "$of", ) {
-                mess "Couldn't remove file", Y $of;
-                return;
+            if (-r $of) {
+                return unless replace_file_dialog($of);
             }
         }
     }
@@ -675,74 +672,76 @@ sub start_download {
     }
 
     # make some of these vars internal to main todo
-    my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $Output_dir, $force_get);
+    #my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $Output_dir, $force_get);
+    # we are still in an event callback
+    # positive means no err so far and thread was launched.
+    # undef means err
+    # -1 means cancelled.
+    my $tid;
 
-    if (!$pid) {
+    if ($async) {
+        $tid = main::start_download_async($mid, $u, $of, $prefq, $preft, $itaq, $itat);
+    }
+    else {
+        #set_cursor($W, 'clock');
+        $tid = main::start_download_sync($mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
+    }
+
+    if (! $tid) {
         # subproc failed.
-        movie_panic_while_waiting($err_file, $mid);
+        movie_panic_while_waiting($mid);
+        return;
+    }
+    elsif ($tid == -1) {
+        #cancelled 
+        D 'cancelled.';
         return;
     }
 
-    my $i = 0;
+    D 'tid', $tid;
 
-    my $try = 0;
-    # wait for forked proc to tell us something.
-    timeout(2000, sub {
-        $i++ > 20 and error "youtube-get behaving strange.";
+    # thread launched. wait for metadata.
 
-        my ($name, $size);
-        # aborted or finished very fast
-        if (! main::process_running($pid)) {
-            ($name, $size) = get_metadata("$tmp/.yt-file");
+    my $md = $Fish::Youtube::DownloadThreads::Metadata_by_tid{$tid};
 
-            if (!$name) {
-                # could still be waiting for fh from child to flush. wait
-                # another two seconds ...
-                if (++$try == 2) {
-                    war "sdChild died", Y $pid;
-                    movie_panic_while_waiting($err_file, $mid);
-                    return 0;
-                }
-                return 1;
-            }
-            else {
-                # ok
-            }
+    timeout 500, sub {
+        D 'checking for tid', $tid;
+
+        my $size = $md->{size};
+        $size and $size != -1 or return 1;
+
+        # we have size. now Is_getting should be 1.
+        if (! $Fish::Youtube::DownloadThreads::Is_getting{$tid}) {
+            D 'download died (or didnt start?)';
+            movie_panic_while_waiting($mid);
+            return 0;
         }
-        # still running
-        else {
-            ($name, $size) = get_metadata("$tmp/.yt-file");
-            # keep waiting
-            return 1 unless $name;
-        }
+
+        # name is only needed if we didn't specify $of
+        my $of = $md->{of};
+
+        D 'got md', 'name', $of, 'size', $size;
 
         # got it, add download and kill timeout
 
-        # name and of are in principle the same. name comes from the
-        # parsed html of the fetched page, of comes from the browser
-        # cache.
-        my $o;
         if ($manual) {
-            $o = $name;
-            $t = basename $name;
+            $t = basename $of;
             $t =~ s/\.\w+$//;
         }
-        else {
-            $o = $of;
-        }
 
-        add_download($mid, $t, $size, $o, $pid);
+        add_download($mid, $t, $size);
 
         my $cur_size = -1;
 
         timeout( 200, sub { 
-            return file_progress({ simulate => 0}, $mid, $o, \$cur_size, $size, $err_file, $pid);
+            return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size);
         });
-
-        timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $o) };
+        
+        #timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $o) };
+        
 
         return 0;
-    });
+    }
     # / child wait
 }
 
@@ -787,14 +786,14 @@ sub file_progress {
         my $opt = shift;
         $simulate = $opt->{simulate} // 0;
     }
-    my ($mid, $file, $cur_size_r, $size, $err_file, $pid) = @_;
+    my ($mid, $file, $cur_size_r, $size) = @_;
     my $s = stat $file or warn(), return 1;
 
     my $d = $D->get($mid);
 
     # download object destroyed for some reason
     if (! $d and ! $simulate) {
-        movie_panic($err_file, $mid);
+        movie_panic($mid);
         return 0;
     }
 
@@ -805,22 +804,22 @@ sub file_progress {
 
     # ps, heavy?
 
-    if ( ! sys_ok "ps $pid" and ! $simulate ) {
-
-        D2 'cur_size', $$cur_size_r;
-
-        # finished
-        if ($$cur_size_r == $size) {
-            download_finished($mid);
-            return 0;
-        }
-
-        # cancelled / other problem
-        else {
-            movie_panic($err_file, $mid);
-            return 0;
-        }
-    }
+#    if ( ! sys_ok "ps $pid" and ! $simulate ) {
+    #
+    #    D2 'cur_size', $$cur_size_r;
+    #
+    #    # finished
+    #    if ($$cur_size_r == $size) {
+    #        download_finished($mid);
+    #        return 0;
+    #    }
+    #
+    #    # cancelled / other problem
+    #    else {
+    #        movie_panic($mid);
+    #        return 0;
+    #    }
+    #}
 
     # still downloading
     return 1;
@@ -828,7 +827,7 @@ sub file_progress {
 
 sub add_download {
 
-    my ($mid, $title, $size, $of, $pid) = @_;
+    my ($mid, $title, $size, $of) = @_;
 
     # downloads added faster than poll_downloads can grab them (shouldn't
     # happen)
@@ -841,7 +840,6 @@ sub add_download {
         size => $size,
         title => $title,
         of => $of,
-        pid => $pid,
     });
 }
 
@@ -855,7 +853,6 @@ sub poll_downloads {
     my $title = $db{title};
     my $idx = $db{idx};
     my $of = $db{of};
-    my $pid = $db{pid};
 
     my $pixmap = make_pixmap();
     clear_pixmap($pixmap);
@@ -870,7 +867,6 @@ sub poll_downloads {
         size    => $size,
         title   => $title,
         of      => $of,
-        pid     => $pid,
         pixmap  => $pixmap,
     );
 
@@ -883,7 +879,6 @@ sub poll_downloads {
 
     my $hb = Gtk2::HBox->new;
     my $vb = Gtk2::VBox->new;
-    my $eb = Gtk2::EventBox->new;
 
     my $c1 = $Col->black;
     my $c2 = get_color(100,100,33,255);
@@ -910,42 +905,50 @@ sub poll_downloads {
     my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($G->img('cancel_hover'));
     $im->set_from_pixbuf($pix_normal);
 
-    my $eb_im = Gtk2::EventBox->new;
-    $eb_im->add($im);
-    $eb_im->modify_bg('normal', $Col->black);
-    $im->modify_bg('normal', $Col->black);
+    {
+        my $eb_im = $W_eb->cancel_btn;
+        $eb_im->add($im);
 
-    $eb_im->signal_connect('enter-notify-event', sub {
-        $im->set_from_pixbuf($pix_hover);
-    });
+        $eb_im->signal_connect('enter-notify-event', sub {
+            $im->set_from_pixbuf($pix_hover);
+        });
 
-    $eb_im->signal_connect('leave-notify-event', sub {
-        $im->set_from_pixbuf($pix_normal);
-    });
+        $eb_im->signal_connect('leave-notify-event', sub {
+            $im->set_from_pixbuf($pix_normal);
+        });
 
-    $vb->add($l1);
-    $hb->add($l2);
-    $hb->add($l3);
-    $hb->add($l4);
+        $eb_im->signal_connect('button-press-event', sub {
+            cancel_download($mid);
+            # 1 means don't propagate (we are inside $eb)
+            return 1;
+        });
 
-    my $hb_al = Gtk2::Alignment->new(0,0,0,0);
-    $hb_al->add($hb);
-    $vb->add($hb_al);
-    $hb->pack_start($eb_im, 0, 0, 20);
+        $vb->add($l1);
+        $hb->add($l2);
+        $hb->add($l3);
+        $hb->add($l4);
 
-    $_->modify_bg('normal', $Col->white) for $l1, $l2, $l3, $l4, $vb, $eb, $hb, $eb_im;
+        my $hb_al = Gtk2::Alignment->new(0,0,0,0);
+        $hb_al->add($hb);
+        $vb->add($hb_al);
+        $hb->pack_start($eb_im, 0, 0, 20);
+    }
 
-    $G->info_box->{$mid} = $eb;
+    $_->modify_bg('normal', $Col->white) for $vb, $hb;
 
-    $eb->add($vb);
+    {
+        my $eb = $W_eb->info;
+        $G->info_box->{$mid} = $eb;
+        $eb->add($vb);
+        $eb->signal_connect('button-press-event', sub {
+            main::watch_movie($of);
+        });
+
+        $W_ly->right->put($eb, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($HP + $RIGHT_SPACING_V));
+    }
 
     remove_wait_label($mid);
 
-    $W_ly->right->put($eb, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($HP + $RIGHT_SPACING_V));
-
-    $eb->signal_connect('button-press-event', sub {
-        main::watch_movie($of);
-    });
 
     update_scroll_area(+1);
     $W_ly->right->show_all;
@@ -953,12 +956,6 @@ sub poll_downloads {
     set_cursor_timeout($G->info_box->{$mid}, 'hand2');
 
     $G->cancel_images->{$mid} = $im;
-
-    $eb_im->signal_connect('button-press-event', sub {
-        cancel_download($mid);
-        # 1 means don't propagate (we are inside $eb)
-        return 1;
-    });
 
     # check size, update download status, update pixmap
     timeout(50, sub {
@@ -1158,13 +1155,9 @@ sub download_finished {
 sub cancel_download {
     my ($mid) = @_;
     my $d = $D->get($mid) or warn, return;
-    my $pid = $d->pid or warn, return;
-    my $idx = $d->idx;
 
-    if ( ! sys_ok qq, kill $pid , ) {
-        err("Couldn't kill process $pid");
-        return;
-    }
+# should hook into tid
+    my $idx = $d->idx;
 
     # will cancel timeouts
     $d->delete;
@@ -1322,16 +1315,14 @@ sub remove_wait_label {
 }
 
 sub movie_panic_while_waiting {
-    my ($err_file, $mid) = @_;
-    movie_panic($err_file, $mid);
+    my ($mid) = @_;
+    movie_panic($mid);
     remove_wait_label($mid);
 }
 
 sub movie_panic {
-    my ($err_file, $mid) = @_;
-    my $fh = safeopen $err_file;
-    local $/ = undef;
-    my $err = <$fh>;
+    my ($mid) = @_;
+    my $err = '??';
     if ($err and $err =~ /\S/ and $err !~ /^\s*Terminated\s*$/s) {
         err "Can't get movie: $err";
     }
@@ -1481,23 +1472,29 @@ sub set_output_dir {
 
     timeout(100, sub {
         $W_lb->od or return 1;
-        $W_lb->od->set_label("$OUTPUT_DIR_TXT $Output_dir", { size => 'small' });
+        $W_lb->od->set_label($T->output_dir . " $Output_dir", { size => 'small' });
         0;
     });
 }
 
 sub set_cursor_timeout {
     my ($widget, $curs) = @_;
-    timeout(50, sub {
-        if (my $w = $widget->window) {
-            $w->set_cursor(Gtk2::Gdk::Cursor->new($curs));
-            return 0;
-        }
-        1;
-    });
+    timeout(50, sub { 
+        return ! set_cursor($widget, $curs) 
+    } );
 }
+
+sub set_cursor {
+    my ($widget, $curs) = @_;
+    if (my $w = $widget->window) {
+        $w->set_cursor(Gtk2::Gdk::Cursor->new($curs));
+        return 1;
+    }
+    return 0;
+}
+
 sub simulate {
-    my $SIM_TMP = main::get_tmp_dir();
+    my $SIM_TMP = main::make_tmp_dir();
     my $sim_idx = 0;
     set_pane_position($G->width / 2);
     timeout(1000, sub {
@@ -1507,7 +1504,7 @@ sub simulate {
         my $of = "$SIM_TMP/blah$mid.flv";
         my $err_file = 'null';
         my $pid = -1234;
-        add_download($mid, $of, $size, $err_file, $pid);
+        add_download($mid, $of, $size);
 
         my $fh = safeopen ">$of";
         select $fh;
@@ -1528,7 +1525,7 @@ sub simulate {
         });
 
         timeout( 200, sub { 
-            return file_progress({ simulate => 1}, $mid, $of, $size, $err_file, $pid);
+            return file_progress({ simulate => 1}, $mid, $of, $size);
         });
 
         return ++$sim_idx == 10 ? 0 : 1;
@@ -1540,5 +1537,45 @@ sub redraw {
     $W->queue_draw;
 }
 
+sub left {
+    my $w = shift;
+    my $al = Gtk2::Alignment->new(0,0,0,0);
+    $al->add($w);
+    $al;
+}
+
+# ret 0: cancel, 1: go
+sub replace_file_dialog {
+    my $of = shift;
+            Gtk2::Gdk::Threads->enter;
+
+    my $dialog = Gtk2::MessageDialog->new ($W,
+        'modal',
+        'question', # message type
+        'yes-no', # which set of buttons?
+        "File '%s' exists; overwrite?", $of);
+
+    my $response;
+
+    $dialog->signal_connect('response', sub {
+        my ($self, $res) = @_;
+        $response = $res;
+        $dialog->destroy;
+    });
+
+    $dialog->run;
+
+            Gtk2::Gdk::Threads->leave;
+    if ($response ne 'yes') {
+        return;
+    }
+
+    if (! sys_ok qq, rm -f "$of", ) {
+        mess "Couldn't remove file", Y $of;
+        return;
+    }
+
+    return 1;
+}
 
 1;
