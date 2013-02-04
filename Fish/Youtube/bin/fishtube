@@ -250,7 +250,7 @@ sub start_download_sync {
         itat => 1,
     };
 
-    return _start_download($msg, 0);
+    return _start_download($did, $msg, 0);
 }
 
 sub start_download_async {
@@ -270,12 +270,12 @@ sub start_download_async {
         of => $output_file,
     };
 
-    return _start_download($msg, 0);
+    return _start_download($did, $msg, 0);
 }
 
 sub _start_download {
 
-    my ($msg, $async) = @_;
+    my ($did, $msg, $async) = @_;
 
     my $tmp_dir = main::make_tmp_dir();
     $msg->{error_file} = $tmp_dir . "/yt-err",
@@ -327,19 +327,33 @@ sub _start_download {
 
         my $type = Fish::Youtube::Gtk::list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
 
-        if ($qual) {
+        if ($type) {
             $qo->enqueue( { type => $type } );
         }
         else {
+D2 ' i gave cancel';
             $qo->enqueue( { cancel => 1 });
             return -1;
         }
+
+        $response = $qi->dequeue or warn, return;
     }
 
-    $response = $qi->dequeue or warn, return;
-
     $response->{error} and warn, return;
-    $response->{ready} or warn, return;
+    $response->{got_metadata} or warn, return;
+
+    my $of = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did}->{of} or warn, return;
+
+    if (-r $of) {
+        D 'trying';
+        my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
+     
+        if (!$ok) {
+            $qo->enqueue({ cancel => 1 });
+            return -1;
+        }
+    }
+    $qo->enqueue({ go => 1});
 
     # This signals caller to start watching.
     return $tid;

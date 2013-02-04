@@ -31,6 +31,8 @@ our %Queues_out;
 our %Metadata_by_did :shared;
 our %Status_by_did :shared;
 
+# D2 doesn't work (log_level set in wrong 'copy')
+
 for (1 .. $NUM_THREADS) {
     my $qi = Thread::Queue->new;
     my $qo = Thread::Queue->new;
@@ -164,13 +166,9 @@ sub thread {
 
             next if $response2->{cancel};
 
-            if (!%$response2) {
-                next;
-            }
-
             my $type = $response2->{type};
 
-            D2 "Ok, getting", 'qual', $qual, 'type', $type;
+            #D "Ok, getting", 'qual', $qual, 'type', $type;
 
             $set_ok = $get->set($qual, $type);
         }
@@ -185,19 +183,20 @@ sub thread {
         $md{size} = $size;
         $md{of} = $of;
 
-        #if (-r $of) {
-        #    my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
-        #
-        #    return unless $ok;
-        #}
-
-        $Status_by_did{$did}->{status} = $set_ok ? 'getting' : 'error';
-
         #D 'returning', $set_ok ? 'ready' : 'error';
 
-        $qo->enqueue( $set_ok ? { ready => 1 } : { error => 1 } );
+        $qo->enqueue( $set_ok ? { got_metadata => 1 } : { error => 1 } );
 
         #D 'downloading', 'size', $size;
+
+        my $response3 = $qi->dequeue or warn, next;
+
+        D 'go';
+        next if $response3->{cancel};
+
+        $response3->{go} or warn, next;
+
+        $Status_by_did{$did}->{status} = $set_ok ? 'getting' : 'error';
 
         # No more queueing. Communicate through md and status.
 

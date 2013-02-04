@@ -414,13 +414,17 @@ sub init {
 
     timeout 50, sub {
         if ($D->is_anything_drawing) {
+            Gtk2::Gdk::Threads->enter;
             redraw();
+            Gtk2::Gdk::Threads->leave;
         }
         1;
     };
 
     timeout 1000, sub { 
+        Gtk2::Gdk::Threads->enter;
         update_movie_tree() ;
+        Gtk2::Gdk::Threads->leave;
     };
 
 my $SIMULATE = 0;
@@ -431,7 +435,10 @@ my $SIMULATE = 0;
 
     if ($profile_ask) {
         push @init_chain, sub {
+            Gtk2::Gdk::Threads->enter;
             my $pd = profile_dialog($profile_ask);
+            Gtk2::Gdk::Threads->leave;
+
             main::set_profile_dir($pd);
         };
     }
@@ -533,7 +540,10 @@ sub update_movie_tree {
         # magic.
         timeout 50, sub {
             if (tree_num_children($W_sl->hist) != $num_in_tree_before_add) {
+
+            Gtk2::Gdk::Threads->enter;
                 $W_sw->left->get_vscrollbar->set_value(0);
+            Gtk2::Gdk::Threads->leave;
                 return 0;
             }
             1;
@@ -556,10 +566,10 @@ sub timeout {
     # put enter/leave around them.
 
     my $new = sub {
-        Gtk2::Gdk::Threads->enter;
+#        Gtk2::Gdk::Threads->enter;
         # always scalar -- return is 0 or 1
         my $r = $sub->(@_);
-        Gtk2::Gdk::Threads->leave;
+#        Gtk2::Gdk::Threads->leave;
         $r;
     };
     Glib::Timeout->add($time, $new);
@@ -653,17 +663,19 @@ my $itat = -1;
     }
 
     # add puntjes to waiting msg
-    timeout(300, sub {
+    timeout 300, sub {
         my $text;
         return 0 unless $G->last_mid_in_statusbar == $mid;
         return 0 unless $text = $G->is_waiting->{$mid};
 
         $text .= '.';
+            Gtk2::Gdk::Threads->enter;
         $W_sb->main->pop($mid);
         $W_sb->main->push($mid, $text);
         $G->is_waiting->{$mid} = $text;
+            Gtk2::Gdk::Threads->leave;
         1;
-    });
+    };
 
     $W_ly->right->show_all;
 
@@ -689,7 +701,6 @@ my $itat = -1;
 
     my $status = $Fish::Youtube::DownloadThreads::Status_by_did{$did};
 
-D 'XXX HERE';
     if (! $tid) {
         # subproc failed.
 
@@ -703,6 +714,7 @@ D 'XXX HERE';
 
         return;
     }
+    # not sure if this happens.
     elsif ($tid == -1) {
         #cancelled 
         D 'cancelled.';
@@ -723,15 +735,16 @@ D 'XXX HERE';
     my $size = $md->{size} or warn, return;
     $md->{of} or warn, return;
 
-D 'XXX there';
     timeout 500, sub {
         #D 'checking for tid', $tid;
 
+            Gtk2::Gdk::Threads->enter;
         if ($status->{status} eq 'error') {
             war "Download thread reported error.";
             my $e;
             warn $e if $e = $status->{errstr};
             movie_panic_while_waiting($mid, $e);
+            Gtk2::Gdk::Threads->leave;
             return 0;
         }
 
@@ -747,7 +760,9 @@ D 'XXX there';
             $t =~ s/\.\w+$//;
         }
 
+            Gtk2::Gdk::Threads->enter;
         add_download($did, $mid, $t, $size, $of);
+            Gtk2::Gdk::Threads->leave;
 
         my $cur_size = -1;
 
@@ -1019,7 +1034,7 @@ sub poll_downloads {
         state $last = -1;
         $size // return 1;
 
-        #Gtk2::Gdk::Threads->enter;
+        Gtk2::Gdk::Threads->enter;
 
         my $err;
 
@@ -1030,7 +1045,7 @@ sub poll_downloads {
         if (not defined $p) {
             D2 "p not defined (yet)";
             # try again
-            #Gtk2::Gdk::Threads->leave;
+            Gtk2::Gdk::Threads->leave;
             return 1;
         }
 
@@ -1038,7 +1053,7 @@ sub poll_downloads {
         if (not $pixmap) {
             warn "pixmap not defined";
             # don't try again
-            #Gtk2::Gdk::Threads->leave;
+            Gtk2::Gdk::Threads->leave;
             return 0;
         }
 
@@ -1056,7 +1071,6 @@ sub poll_downloads {
         }
         $last = $p;
 
-        #Gtk2::Gdk::Threads->leave;
 
         if ($perc >= 100) {
             my $surface = $anarchy->draw(1, { last => 1});
@@ -1069,8 +1083,10 @@ sub poll_downloads {
             redraw();
             
             $d->stopped_drawing;
+        Gtk2::Gdk::Threads->leave;
             return 0;
         }
+        Gtk2::Gdk::Threads->leave;
         return 1;
     });
 
@@ -1525,17 +1541,21 @@ sub set_output_dir {
     $Output_dir = $od;
     main::set_output_dir($Output_dir);
 
-    timeout(100, sub {
+    timeout 100, sub {
         $W_lb->od or return 1;
+            Gtk2::Gdk::Threads->enter;
         $W_lb->od->set_label($T->output_dir . " $Output_dir", { size => 'small' });
+            Gtk2::Gdk::Threads->leave;
         0;
-    });
+    };
 }
 
 sub set_cursor_timeout {
     my ($widget, $curs) = @_;
     timeout(50, sub { 
-        return ! set_cursor($widget, $curs) 
+            Gtk2::Gdk::Threads->enter;
+        return ! set_cursor($widget, $curs) ;
+            Gtk2::Gdk::Threads->leave;
     } );
 }
 
@@ -1603,9 +1623,7 @@ sub left {
 # ret 0: cancel, 1: go
 sub replace_file_dialog {
     my $of = shift;
-    D 'yes';
-    #Gtk2::Gdk::Threads->enter;
-    D 'es';
+            Gtk2::Gdk::Threads->enter;
 
     my $dialog = Gtk2::MessageDialog->new ($W,
         'modal',
@@ -1623,7 +1641,7 @@ sub replace_file_dialog {
 
     $dialog->run;
 
-    #Gtk2::Gdk::Threads->leave;
+            Gtk2::Gdk::Threads->leave;
     if ($response ne 'yes') {
         return;
     }
