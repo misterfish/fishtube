@@ -193,6 +193,7 @@ my $G = o(
     # auto add methods last_xxx_inc, last_xxx_dec.
     '+-last_mid' => -1,
     '+-last_idx' => -1,
+    '+-last_did' => -1,
 
     # medium
     preferred_quality => 1,
@@ -593,9 +594,12 @@ sub row_activated {
 sub start_download {
     my ($u, $t, $mid) = @_;
 
-    # already downloaded
+    # already downloaded /-ing
     return if $D->exists($mid);
     
+    $G->last_did_inc;
+    my $did = $G->last_did;
+
     if (! $Output_dir) {
         # remove_all doesn't seem to work.
         $W_sb->main->pop(STATUS_OD);
@@ -680,18 +684,28 @@ my $itat = -1;
     my $tid;
 
     if ($async) {
-        $tid = main::start_download_async($mid, $u, $of, $prefq, $preft, $itaq, $itat);
+        $tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
     }
     else {
-        #set_cursor($W, 'clock');
-        $tid = main::start_download_sync($mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
+        $tid = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
     }
+
+    my $status = $Fish::Youtube::DownloadThreads::Status_by_did{$did};
 
     if (! $tid) {
         # subproc failed.
-        movie_panic_while_waiting($mid);
+
+        my $e;
+        if ($status->{status} eq 'error') {
+            war "Download thread reported error.";
+            warn $e if $e = $status->{errstr};
+        }
+
+        movie_panic_while_waiting($mid, $e);
+
         return;
     }
+    # not sure if this happens.
     elsif ($tid == -1) {
         #cancelled 
         D 'cancelled.';
@@ -700,25 +714,32 @@ my $itat = -1;
 
     D 'tid', $tid;
 
-    # thread launched. wait for metadata.
+    # Thread launched and signalled 'ready'. 
 
     my $md = $Fish::Youtube::DownloadThreads::Metadata_by_tid{$tid};
 
+    if ($status->{status} eq 'error') {
+        war "Download thread reported error.";
+        my $e;
+        warn $e if $e = $status->{errstr};
+    }
+
+    my $size = $md->{size} or warn, return;
+    $md->{of} or warn, return;
+
     timeout 500, sub {
-        D 'checking for tid', $tid;
+        #D 'checking for tid', $tid;
 
-        my $size = $md->{size};
-        $size and $size != -1 or return 1;
-
-        # we have size. now Is_getting should be 1.
-        if (! $Fish::Youtube::DownloadThreads::Is_getting{$tid}) {
-            D 'download died (or didnt start?)';
-            movie_panic_while_waiting($mid);
+        if ($status->{status} eq 'error') {
+            war "Download thread reported error.";
+            my $e;
+            warn $e if $e = $status->{errstr};
+            movie_panic_while_waiting($mid, $e);
             return 0;
         }
 
         # name is only needed if we didn't specify $of
-        my $of = $md->{of};
+        $of //= $md->{of};
 
         D 'got md', 'name', $of, 'size', $size;
 
@@ -866,7 +887,7 @@ sub poll_downloads {
         idx     => $idx,
         size    => $size,
         title   => $title,
-        of      => $of,
+        #of      => $of,
         pixmap  => $pixmap,
     );
 
@@ -1315,17 +1336,16 @@ sub remove_wait_label {
 }
 
 sub movie_panic_while_waiting {
-    my ($mid) = @_;
-    movie_panic($mid);
+    my ($mid, $errstr) = @_;
+    movie_panic($mid, $errstr);
     remove_wait_label($mid);
 }
 
 sub movie_panic {
-    my ($mid) = @_;
-    my $err = '??';
-    if ($err and $err =~ /\S/ and $err !~ /^\s*Terminated\s*$/s) {
-        err "Can't get movie: $err";
-    }
+    # errstr can be undef
+    my ($mid, $errstr) = @_;
+    my $err = $errstr // '';
+    err "Error getting movie" . ($err ? ": $err" : '.');
 
     # no warn -- object might already have been deleted.
     download_stopped($mid, 1);

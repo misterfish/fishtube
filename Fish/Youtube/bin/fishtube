@@ -228,6 +228,7 @@ sub make_tmp_dir {
 # still in event loop -- no enter/exit necessary
 sub start_download_sync {
 
+    my $did = shift // die;
     my $mid = shift // die;
     my $url = shift or die;
     my $output_dir = shift or die;
@@ -241,6 +242,7 @@ sub start_download_sync {
     my $itat = shift // die;
 
     my $msg = {
+        did => $did,
         url => $url,
         prefq => $prefq,
         preft => $preft,
@@ -252,6 +254,7 @@ sub start_download_sync {
 }
 
 sub start_download_async {
+    my $did = shift // die;
     my $mid = shift // die;
     my $url = shift or die;
     my $output_file = shift or die;
@@ -262,6 +265,7 @@ sub start_download_async {
     my $itat = shift // die;
 
     my $msg = {
+        did => $did,
         url => "http://www.youtube.com/watch?v=QARALafdWUI",
         of => $output_file,
     };
@@ -285,14 +289,17 @@ sub _start_download {
     my $qo = $t->queues_in->{$tid};
     my $qi = $t->queues_out->{$tid};
 
-    my $send;
     my $response;
 
+    # send init msg
     $qo->enqueue($msg);
 
+    # recv: 
+    # {error => 1} or available quals.
     $response = $qi->dequeue or warn, return;
 
-    $response->{err} and return 0;
+    my $e;
+    $e = $response->{error} and warn ($e), return;
 
     if ($async) {
         # We don't care about anything any more, just let it go.
@@ -305,29 +312,34 @@ sub _start_download {
 
         my $qual = Fish::Youtube::Gtk::list_choice_dialog(\@quals, "Choose quality", {allow_cancel => 1});
 
-        # undef means cancel
         if ($qual) {
             $qo->enqueue( { qual => $qual } );
         }
         else {
-            $qo->enqueue(undef);
+            $qo->enqueue( { cancel => 1 });
             return -1;
         }
 
-        $response = $qi->dequeue;
-        my @types = list $response->{types};
+        # types for this qual
+        $response = $qi->dequeue or warn, return;
+
+        my @types = list $response->{types} or warn, return;
 
         my $type = Fish::Youtube::Gtk::list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
 
-        # undef means cancel
         if ($qual) {
             $qo->enqueue( { type => $type } );
         }
         else {
-            $qo->enqueue(undef);
+            $qo->enqueue( { cancel => 1 });
             return -1;
         }
     }
+
+    $response = $qi->dequeue or warn, return;
+
+    $response->{error} and warn, return;
+    $response->{ready} or warn, return;
 
     # This signals caller to start watching.
     return $tid;

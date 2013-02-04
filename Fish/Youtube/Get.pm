@@ -159,7 +159,15 @@ has _movie_url => (
 has error => (
     is  => 'rw',
     isa => 'Bool',
+    writer => 'set_error',
 );
+
+has errstr => (
+    is => 'rw',
+    isa => 'Str',
+    writer => 'set_errstr',
+);
+
 
 # x-flv / mp4 / webm / 3gpp / [others?]
 my @TYPES = qw/ mp4 x-flv webm 3gpp /;
@@ -245,7 +253,7 @@ sub BUILD {
 
     if (! $self->no_init_params ) {
         $self->_set_params;
-        $self->set($self->quality, $self->type) or $self->error(1);
+        $self->set($self->quality, $self->type);
     }
 }
 
@@ -437,8 +445,8 @@ sub END {
 #    }
 }
 
-
-
+# warn to stdout, write to errfile if present, and store in errstr and set
+# error flag.
 sub war {
     my ($self, @s) = @_;
     my $s = join ' ', @s, "\n";
@@ -446,6 +454,8 @@ sub war {
     if (my $fh = $self->_efh) {
         say $fh $s;
     }
+    $self->set_error(1);
+    $self->set_errstr($s);
 }
 
 sub _set_params {

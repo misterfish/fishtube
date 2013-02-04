@@ -28,7 +28,7 @@ our %Queues_in;
 our %Queues_out;
 
 our %Metadata_by_tid :shared;
-our %Is_getting :shared;
+our %Status_by_did :shared;
 
 for (1 .. $NUM_THREADS) {
     my $qi = Thread::Queue->new;
@@ -41,18 +41,13 @@ for (1 .. $NUM_THREADS) {
     $Queues_out{$tid} = $qo;
 
     my %md :shared = (
-        size => -1,
+        size => undef,
         of => undef,
         #err => 0,
     );
 
     $Metadata_by_tid{$tid} = \%md;
-    $Is_getting{$tid} = 0;
 }
-
-#our $Metadata_by_tid = shared_clone \%_metadata_by_tid;
-
-our %Temp :shared;
 
 sub thread {
     my ($qi, $qo) = @_;
@@ -61,11 +56,10 @@ sub thread {
     while (1) {
         last if $Terminate;
 
-        my $md = $Metadata_by_tid{$tid};
-        $md->{size} = -1;
+        my $md :shared = $Metadata_by_tid{$tid};
+        $md->{size} = undef;
         $md->{of} = undef;
         #$md->{err} = 0;
-        $Is_getting{$tid} = 0;
 
         $Queue_idle->enqueue($tid);
 
@@ -73,23 +67,37 @@ sub thread {
         
         my $err;
 
-        my $url = $msg->{url} or warn, $err = 1;
-        my $prefq = $msg->{prefq};
-        defined $prefq or warn, $err = 1;
-        my $preft = $msg->{preft};
-        defined $preft or warn, $err = 1;
+        #my $url = $msg->{url} or warn, $err = 1;
+        #my $prefq = $msg->{prefq};
+        #defined $prefq or warn, $err = 1;
+        #my $preft = $msg->{preft};
+        #defined $preft or warn, $err = 1;
+        ## is_tolerant
+        #my $itaq = $msg->{itaq};
+        #defined $itaq or warn, $err = 1;
+        #my $itat = $msg->{itat};
+        #defined $itat or warn, $err = 1;
+
+        # download id
+        my $did = $msg->{did} // die;
+
+        my $url = $msg->{url} // die;
+
+        my $prefq = $msg->{prefq} // die;
+        my $preft = $msg->{preft} // die;
+
         # is_tolerant
-        my $itaq = $msg->{itaq};
-        defined $itaq or warn, $err = 1;
-        my $itat = $msg->{itat};
-        defined $itat or warn, $err = 1;
+        my $itaq = $msg->{itaq} // die;
+        my $itat = $msg->{itat} // die;
 
-        my $error_file = $msg->{error_file} or warn, $err = 1;
+        my $error_file = $msg->{error_file} // die;
 
-        if ($err) {
-            warn 'init error';
-            $qo->enqueue({err => 1});
-            next;
+        #$qo->enqueue({err => 1});
+        #next;
+
+        {
+            my %s :shared = ( status => 'init' );
+            $Status_by_did{$did} = \%s;
         }
 
         my $async = 1;
@@ -119,65 +127,75 @@ sub thread {
             @p,
         );
 
-        D @init;
         my $get = Fish::Youtube::Get->new(@init);
 
         if ($get->error) {
-            warn "error building get object.";
-            $qo->enqueue({err => 1});
+            $qo->enqueue({error => 'error building get object'});
+
+            $Status_by_did{$did}->{status} = 'error';
+            $Status_by_did{$did}->{errstr} = $get->errstr;
+
             next;
         }
 
-    # from here on, don't send {err => 1} objects
+        # ready to download. if any prompts are cancelled, it will stay idle
+        # forever.
+        $Status_by_did{$did}->{status} = 'idle';
 
-    if ($async) {
-    }
-    else {
-
-        my $abq = $get->avail_by_quality or warn, $qo->enqueue(undef), next;
-        my $abt = $get->avail_by_type or warn, $qo->enqueue(undef), next;
-
-        my @quals = map { defined $abq->{$_} ? $_ : () } @QUALITY;
-
-        my $response;
-
-        $qo->enqueue( { quals => \@quals } );
-
-        # cancelled
-        $response = $qi->dequeue or next;
-
-        my $qual = $response->{qual};
-
-        my $types = $abq->{$qual} or next;
-
-        my @types = keys %$types;
-
-        $qo->enqueue( { types => \@types } );
-
-        my $response2 = $qi->dequeue;
-
-        if (!%$response2) {
-            say "Ok, cancelling";
-            next;
+        my $set_ok;
+        if ($async) {
         }
+        else {
 
-        my $type = $response2->{type};
+            # enqueue undef as cheap way to signal err
+            
+            my $abq = $get->avail_by_quality or warn, $qo->enqueue(undef), next;
+            my $abt = $get->avail_by_type or warn, $qo->enqueue(undef), next;
 
-        D "Ok, getting", 'qual', $qual, 'type', $type;
+            my @quals = map { defined $abq->{$_} ? $_ : () } @QUALITY;
 
-        $get->set($qual, $type);
+            my $response;
 
-    }
+            $qo->enqueue( { quals => \@quals } );
+
+            $response = $qi->dequeue or warn, next;
+
+            next if $response->{cancel};
+
+            my $qual = $response->{qual} or warn, next;
+
+            my $types = $abq->{$qual} or warn, next;
+
+            my @types = keys %$types;
+
+            $qo->enqueue( { types => \@types } );
+
+            # chosen type
+            my $response2 = $qi->dequeue or warn, next;
+
+            next if $response2->{cancel};
+
+            if (!%$response2) {
+                say "Ok, cancelling";
+                next;
+            }
+
+            my $type = $response2->{type};
+
+            D "Ok, getting", 'qual', $qual, 'type', $type;
+
+            $set_ok = $get->set($qual, $type);
+        }
 
         my $size = $get->get_size;
         my $of = $get->out_file;
 
-        D 'storing md for tid', $tid;
+        #D 'storing md for tid', $tid;
+        #DC 'set ok', $set_ok, 'of', $of, 'size', $size;
 
+        # will be undef if set_ok not 1
         $md->{size} = $size;
         $md->{of} = $of;
-
-        $Temp{$tid} = $size;
 
         #if (-r $of) {
         #    my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
@@ -185,20 +203,25 @@ sub thread {
         #    return unless $ok;
         #}
 
-        D 'downloading', 'size', $size;
+        $Status_by_did{$did}->{status} = $set_ok ? 'getting' : 'error';
 
-        # set to 1 after md set.
-        $Is_getting{$tid} = 1;
+        #D 'returning', $set_ok ? 'ready' : 'error';
+
+        $qo->enqueue( $set_ok ? { ready => 1 } : { error => 1 } );
+
+        #D 'downloading', 'size', $size;
+
+        # No more queueing. Communicate through md and status.
 
         my $ok = $get->get;
         if ($ok) {
-            D 'ok!';
+            $Status_by_did{$did}->{status} = 'done';
         } else {
-            D 'error with download';
-            $Is_getting{$tid} = 0;
+            $Status_by_did{$did}->{status} = 'error';
+            $Status_by_did{$did}->{errstr} = $get->errstr;
         }
     }
-    say "$tid done.";
+    say "cleanup -- $tid done.";
 }
 
 
