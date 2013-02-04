@@ -708,8 +708,6 @@ my $itat = -1;
         return;
     }
 
-    D 'tid', $tid;
-
     # Thread launched and signalled 'ready'. 
 
     #my $md = $Fish::Youtube::DownloadThreads::Metadata_by_tid{$tid};
@@ -738,7 +736,7 @@ my $itat = -1;
         # name is only needed if we didn't specify $of
         $of //= $md->{of};
 
-        D 'got md', 'name', $of, 'size', $size;
+        D2 'got md', 'name', $of, 'size', $size;
 
         # got it, add download and kill timeout
 
@@ -757,7 +755,7 @@ my $itat = -1;
         
         timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
 
-D 'gtk: download started, outer timeout over';
+        D2 'gtk: download started, outer timeout over';
 
         return 0;
     }
@@ -1202,7 +1200,6 @@ sub download_finished {
 sub cancel_download {
     my ($mid) = @_;
 
-D 'cancelling mid', $mid;
     my $d = $D->get($mid) or warn, return;
 
     my $did = $d->did;

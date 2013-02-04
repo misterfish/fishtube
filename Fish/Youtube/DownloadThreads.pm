@@ -165,13 +165,12 @@ sub thread {
             next if $response2->{cancel};
 
             if (!%$response2) {
-                say "Ok, cancelling";
                 next;
             }
 
             my $type = $response2->{type};
 
-            D "Ok, getting", 'qual', $qual, 'type', $type;
+            D2 "Ok, getting", 'qual', $qual, 'type', $type;
 
             $set_ok = $get->set($qual, $type);
         }
@@ -212,7 +211,7 @@ sub thread {
             $Status_by_did{$did}->{errstr} = $get->errstr;
         }
     }
-    say "cleanup -- $tid done.";
+    D2 "cleanup -- $tid done.";
 }
 
 
