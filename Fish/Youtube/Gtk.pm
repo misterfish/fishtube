@@ -689,7 +689,6 @@ my $itat = -1;
 
     my $status = $Fish::Youtube::DownloadThreads::Status_by_did{$did};
 
-D 'XXX HERE';
     if (! $tid) {
         # subproc failed.
 
@@ -723,7 +722,6 @@ D 'XXX HERE';
     my $size = $md->{size} or warn, return;
     $md->{of} or warn, return;
 
-D 'XXX there';
     timeout 500, sub {
         #D 'checking for tid', $tid;
 
@@ -843,9 +841,8 @@ sub file_progress {
     $d->prog($$cur_size_r);
 
     if ($delete) {
-        # This will cancel the animation loop. Then we need one last redraw.
-        $d->delete;
-        redraw();
+        #redraw();
+        erase_download_entry($mid);
         return 0;
     }
     elsif ($done) {
@@ -1206,15 +1203,28 @@ sub cancel_download {
 
     my $did = $d->did;
 
-    my $idx = $d->idx;
-
     # XX
     {
         lock %Fish::Youtube::DownloadThreads::Status_by_did;
         $Fish::Youtube::DownloadThreads::Status_by_did{$did}->{status} = 'cancelled';
     }
+    {
+        lock %Fish::Youtube::DownloadThreads::Cancel_by_did;
+        $Fish::Youtube::DownloadThreads::Cancel_by_did{$did} = 1;
+    }
 
-    #$d->delete;
+}
+
+sub erase_download_entry {
+    my ($mid) = @_;
+
+    my $d = $D->get($mid) or warn, return;
+
+    my $idx = $d->idx;
+
+    # This will cancel the animation loop. Then we erase the stuff and do
+    # one last redraw.
+    $d->delete;
 
     $G->last_idx_dec;
     # decrease idx of later dls by 1
@@ -1232,7 +1242,7 @@ sub cancel_download {
 
     update_scroll_area(-1);
     #D 'redrawing';
-    #redraw();
+    redraw();
 }
 
 sub err {
@@ -1603,9 +1613,6 @@ sub left {
 # ret 0: cancel, 1: go
 sub replace_file_dialog {
     my $of = shift;
-    D 'yes';
-    #Gtk2::Gdk::Threads->enter;
-    D 'es';
 
     my $dialog = Gtk2::MessageDialog->new ($W,
         'modal',
@@ -1623,7 +1630,6 @@ sub replace_file_dialog {
 
     $dialog->run;
 
-    #Gtk2::Gdk::Threads->leave;
     if ($response ne 'yes') {
         return;
     }

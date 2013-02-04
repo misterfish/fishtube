@@ -26,13 +26,6 @@ $SIG{INT} = $SIG{KILL} = sub { exit(1) };
 
 my $DEFAULT_TMP = '/tmp';
 
-#my $Content_length :shared = undef;
-#my $Outfile_size :shared = 0;
-#my $Yt_file :shared;
-my $Content_length = undef;
-my $Outfile_size = 0;
-my $Yt_file;
-
 has _c => (
     is => 'rw',
     isa => 'Str',
@@ -136,10 +129,10 @@ has no_init_params => (
     isa => 'Bool',
 );
 
-has error_file => (
-    is  => 'ro',
-    isa => 'Str',
-);
+#has error_file => (
+#    is  => 'ro',
+#    isa => 'Str',
+#);
 
 has _efh => (
     is  => 'rw',
@@ -189,11 +182,10 @@ sub BUILD {
     my $tmp = $self->tmp;
     (-d $tmp and -w $tmp) or $self->war("Invalid tmp:", R $tmp), return;
 
-    if (my $ef = $self->error_file) {
-        my $fh = IO::File->new(">$ef") or $self->war("Can't open error file", Y $ef, R $!), return;
-        $self->_efh($fh);
-        $fh->autoflush(1);
-    }
+    my $ef = "$tmp/yt-err";
+    my $fh = IO::File->new(">$ef") or $self->war("Can't open error file", Y $ef, R $!), return;
+    $self->_efh($fh);
+    $fh->autoflush(1);
 
     my $Out_file;
 
@@ -204,16 +196,13 @@ sub BUILD {
 
     # necessary?
     my $cookie_jar = HTTP::Cookies->new(
-        file     => $self->tmp . "/yt-cook-$$.txt",
+        file     => $tmp . "/yt-cook-$$",
         autosave => 1,
     );
     $ua->cookie_jar( $cookie_jar );
 
     # hang forever
     $ua->timeout(0);
-
-    my $YT_FILE = ".yt-file";
-    $Yt_file = $self->tmp . "/$YT_FILE-$$";
 
     my $res = $self->ua->get($self->url);
 
@@ -330,7 +319,8 @@ sub get_size {
 }
 
 sub get {
-    my ($self) = @_;
+    # cancel_r allows cancel while downloading
+    my ($self, $cancel_r) = @_;
 
     my $of = $self->out_file;
     if (-e $of and ! $self->force) {
@@ -357,9 +347,30 @@ sub get {
 
     $self->d2('url', $url);
 
+    # will die on error, has been checked above
+    my $fh = safeopen ">$of";
+
+    if (! $cancel_r) {
+        my $cancel = 0;
+        $cancel_r = \$cancel;
+    }
+
+    my @callback = (':content_cb' => sub { 
+        my ($chunk, $res, $protocol) = @_;
+
+        syswrite $fh, $chunk;
+
+        if ($$cancel_r) {
+            $self->d2('cancelling download');
+            die;
+        }
+    });
+
     $ua->max_size(undef);
+
     my $res = $ua->get($url,
-        ':content_file'     => $of,
+        #':content_file'     => $of,
+        @callback,
     );
 
     if (!$res->is_success) {
@@ -439,10 +450,6 @@ sub qualities { @QUALITY }
 1;
 
 sub END {
-#    if ($Yt_file) {
-#        open my $fh, ">:utf8", "$Yt_file" or die "$Yt_file: $!";
-#        say $fh ($Ok ? "$Out_file\n$Content_length" : '');
-#    }
 }
 
 # warn to stdout, write to errfile if present, and store in errstr and set

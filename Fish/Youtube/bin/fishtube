@@ -46,14 +46,17 @@ use Fish::Youtube::Gtk;
 use Fish::Youtube::History;
 use Fish::Youtube::Get;
 
-
 sub error;
 sub war;
 
 #%
 
-my @Tmp_dirs;
+my $TMP_TMPL = 'fishtubeXXXX';
 
+# force END
+$SIG{KILL} = $SIG{INT} = sub { exit };
+
+my @Tmp_dirs;
 
 my $TMP = '/tmp';
 
@@ -218,7 +221,7 @@ sub war {
 }
 
 sub make_tmp_dir {
-    my $d = File::Temp->newdir( 'fishtubeXXXX', DIR => $TMP, CLEANUP => 1 );
+    my $d = File::Temp->newdir( $TMP_TMPL, DIR => $TMP, CLEANUP => 1 );
     # so it doesn't go out of scope
     push @Tmp_dirs, $d;
     $d->dirname;
@@ -278,7 +281,8 @@ sub _start_download {
     my ($did, $msg, $async) = @_;
 
     my $tmp_dir = main::make_tmp_dir();
-    $msg->{error_file} = $tmp_dir . "/yt-err",
+    #$msg->{error_file} = $tmp_dir . "/yt-err";
+    $msg->{tmp} = $tmp_dir;
 
     my $t = 'Fish::Youtube::DownloadThreads';
 
@@ -427,4 +431,18 @@ sub sanitize_filename {
     $$tr =~ s|/|-|g;
     $$tr =~ s|\\|-|g;
     $$tr =~ s/"/'/g;
+}
+
+END {
+    # die is ok in end
+    for my $d (@Tmp_dirs) {
+        my $t = $TMP_TMPL;
+        my $num_x = 0;
+        $num_x++ while $t =~ s/X$//;
+        D $d;
+        D $t;
+        D $num_x;
+        die unless $d =~ m| / $t .{$num_x} $|ix;
+        sys qq, rm -rf "$d" ,;
+    }
 }

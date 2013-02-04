@@ -30,6 +30,7 @@ our %Queues_out;
 #our %Metadata_by_tid :shared;
 our %Metadata_by_did :shared;
 our %Status_by_did :shared;
+our %Cancel_by_did :shared;
 
 # D2 doesn't work (log_level set in wrong 'copy')
 
@@ -42,14 +43,6 @@ for (1 .. $NUM_THREADS) {
     my $tid = $thr->tid;
     $Queues_in{$tid} = $qi;
     $Queues_out{$tid} = $qo;
-
-    #my %md :shared = (
-    #    size => undef,
-    #    of => undef,
-    #    #err => 0,
-    #);
-
-    #$Metadata_by_tid{$tid} = \%md;
 }
 
 sub thread {
@@ -65,6 +58,8 @@ sub thread {
         
         my $err;
 
+        # these dies cause segfaults apparently.
+       
         # download id
         my $did = $msg->{did} // die;
 
@@ -76,8 +71,6 @@ sub thread {
         # is_tolerant
         my $itaq = $msg->{itaq} // die;
         my $itat = $msg->{itat} // die;
-
-        my $error_file = $msg->{error_file} // die;
 
         {
             my %s :shared = ( status => 'init' );
@@ -109,11 +102,10 @@ sub thread {
 
         my @init = (
             dir => '/tmp',
-            error_file => $error_file,
             url => $url,
 
             # gui should take care of prompting for overwrite
-            #force => 1,
+            force => 1,
 
             @p,
         );
@@ -176,22 +168,14 @@ sub thread {
         my $size = $get->get_size;
         my $of = $get->out_file;
 
-        #D 'storing md for tid', $tid;
-        #DC 'set ok', $set_ok, 'of', $of, 'size', $size;
-
-        # will be undef if set_ok not 1
+        # will be undef if ! set_ok 
         $md{size} = $size;
         $md{of} = $of;
 
-        #D 'returning', $set_ok ? 'ready' : 'error';
-
         $qo->enqueue( $set_ok ? { got_metadata => 1 } : { error => 1 } );
-
-        #D 'downloading', 'size', $size;
 
         my $response3 = $qi->dequeue or warn, next;
 
-        D 'go';
         next if $response3->{cancel};
 
         $response3->{go} or warn, next;
@@ -202,7 +186,8 @@ sub thread {
 
         # give chance to cancel here  XX
 
-        my $ok = $get->get;
+        my $ok = $get->get(\$Cancel_by_did{$did});
+
         if ($ok) {
             $Status_by_did{$did}->{status} = 'done';
         } else {
