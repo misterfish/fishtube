@@ -27,7 +27,8 @@ my @TYPES = Fish::Youtube::Get->types;
 our %Queues_in;
 our %Queues_out;
 
-our %Metadata_by_tid :shared;
+#our %Metadata_by_tid :shared;
+our %Metadata_by_did :shared;
 our %Status_by_did :shared;
 
 for (1 .. $NUM_THREADS) {
@@ -40,13 +41,13 @@ for (1 .. $NUM_THREADS) {
     $Queues_in{$tid} = $qi;
     $Queues_out{$tid} = $qo;
 
-    my %md :shared = (
-        size => undef,
-        of => undef,
-        #err => 0,
-    );
+    #my %md :shared = (
+    #    size => undef,
+    #    of => undef,
+    #    #err => 0,
+    #);
 
-    $Metadata_by_tid{$tid} = \%md;
+    #$Metadata_by_tid{$tid} = \%md;
 }
 
 sub thread {
@@ -56,27 +57,11 @@ sub thread {
     while (1) {
         last if $Terminate;
 
-        my $md :shared = $Metadata_by_tid{$tid};
-        $md->{size} = undef;
-        $md->{of} = undef;
-        #$md->{err} = 0;
-
         $Queue_idle->enqueue($tid);
 
         my $msg = $qi->dequeue;
         
         my $err;
-
-        #my $url = $msg->{url} or warn, $err = 1;
-        #my $prefq = $msg->{prefq};
-        #defined $prefq or warn, $err = 1;
-        #my $preft = $msg->{preft};
-        #defined $preft or warn, $err = 1;
-        ## is_tolerant
-        #my $itaq = $msg->{itaq};
-        #defined $itaq or warn, $err = 1;
-        #my $itat = $msg->{itat};
-        #defined $itat or warn, $err = 1;
 
         # download id
         my $did = $msg->{did} // die;
@@ -92,13 +77,17 @@ sub thread {
 
         my $error_file = $msg->{error_file} // die;
 
-        #$qo->enqueue({err => 1});
-        #next;
-
         {
             my %s :shared = ( status => 'init' );
             $Status_by_did{$did} = \%s;
         }
+
+        my %md :shared = (
+            size => undef,
+            of => undef,
+        );
+
+        $Metadata_by_did{$did} = \%md;
 
         my $async = 1;
         $async = 0 unless $preft and $prefq;
@@ -194,8 +183,8 @@ sub thread {
         #DC 'set ok', $set_ok, 'of', $of, 'size', $size;
 
         # will be undef if set_ok not 1
-        $md->{size} = $size;
-        $md->{of} = $of;
+        $md{size} = $size;
+        $md{of} = $of;
 
         #if (-r $of) {
         #    my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);

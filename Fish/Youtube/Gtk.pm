@@ -119,8 +119,8 @@ my $W_eb = o(
     pq          => Gtk2::EventBox->new,
     pt          => Gtk2::EventBox->new,
     od          => Gtk2::EventBox->new,
-    info        => Gtk2::EventBox->new,
-    cancel_btn  => Gtk2::EventBox->new,
+    #info        => Gtk2::EventBox->new,
+    #cancel_btn  => Gtk2::EventBox->new,
 );
 
 my $W_sl = o(
@@ -716,7 +716,8 @@ my $itat = -1;
 
     # Thread launched and signalled 'ready'. 
 
-    my $md = $Fish::Youtube::DownloadThreads::Metadata_by_tid{$tid};
+    #my $md = $Fish::Youtube::DownloadThreads::Metadata_by_tid{$tid};
+    my $md = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did};
 
     if ($status->{status} eq 'error') {
         war "Download thread reported error.";
@@ -750,7 +751,7 @@ my $itat = -1;
             $t =~ s/\.\w+$//;
         }
 
-        add_download($mid, $t, $size);
+        add_download($mid, $t, $size, $of);
 
         my $cur_size = -1;
 
@@ -927,7 +928,8 @@ sub poll_downloads {
     $im->set_from_pixbuf($pix_normal);
 
     {
-        my $eb_im = $W_eb->cancel_btn;
+        #my $eb_im = $W_eb->cancel_btn;
+        my $eb_im = Gtk2::EventBox->new;
         $eb_im->add($im);
 
         $eb_im->signal_connect('enter-notify-event', sub {
@@ -958,7 +960,8 @@ sub poll_downloads {
     $_->modify_bg('normal', $Col->white) for $vb, $hb;
 
     {
-        my $eb = $W_eb->info;
+        #my $eb = $W_eb->info;
+        my $eb = Gtk2::EventBox->new;
         $G->info_box->{$mid} = $eb;
         $eb->add($vb);
         $eb->signal_connect('button-press-event', sub {
