@@ -119,8 +119,6 @@ my $W_eb = o(
     pq          => Gtk2::EventBox->new,
     pt          => Gtk2::EventBox->new,
     od          => Gtk2::EventBox->new,
-    #info        => Gtk2::EventBox->new,
-    #cancel_btn  => Gtk2::EventBox->new,
 );
 
 my $W_sl = o(
@@ -751,16 +749,17 @@ my $itat = -1;
             $t =~ s/\.\w+$//;
         }
 
-        add_download($mid, $t, $size, $of);
+        add_download($did, $mid, $t, $size, $of);
 
         my $cur_size = -1;
 
-        timeout( 200, sub { 
-            return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size);
-        });
+        timeout 200, sub { 
+            return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $status);
+        };
         
-        #timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $o) };
-        
+        timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
+
+D 'gtk: download started, outer timeout over';
 
         return 0;
     }
@@ -808,40 +807,56 @@ sub file_progress {
         my $opt = shift;
         $simulate = $opt->{simulate} // 0;
     }
-    my ($mid, $file, $cur_size_r, $size) = @_;
+
+    # cur_size_r is watched from outside.
+    # status is the shared thread obj.
+    my ($mid, $file, $cur_size_r, $size, $status) = @_;
+
     my $s = stat $file or warn(), return 1;
 
     my $d = $D->get($mid);
 
-    # download object destroyed for some reason
-    if (! $d and ! $simulate) {
-        movie_panic($mid);
+    my $delete;
+
+    if ($status->{status} eq 'error') {
+        my $e;
+        war $e if $e = $status->{errstr};
+        movie_panic($mid, $e);
         return 0;
+    }
+    elsif ($status->{status} eq 'done') {
+        $delete = 1;
+        download_finished($mid);
+        warn unless $$cur_size_r == $size;
+    }
+    elsif ($status->{status} eq 'cancelled') {
+D 'cancelled, ok';
+        $delete = 1;
     }
 
     $$cur_size_r = $s->size;
+
+    # download object destroyed for some reason
+    if (! $d and ! $simulate) {
+#        if (! $done and ! $simulate) {
+            movie_panic($mid);
+            return 0;
+#        }
+    }
+#    else {
+#    }
+
     $d->prog($$cur_size_r);
 
-    # process not running -- finished or aborted
+    if ($delete) {
+        $d->delete;
+        return 0;
+    }
+    else {
+        warn if $$cur_size_r == $size;
+    }
 
-    # ps, heavy?
-
-#    if ( ! sys_ok "ps $pid" and ! $simulate ) {
-    #
-    #    D2 'cur_size', $$cur_size_r;
-    #
-    #    # finished
-    #    if ($$cur_size_r == $size) {
-    #        download_finished($mid);
-    #        return 0;
-    #    }
-    #
-    #    # cancelled / other problem
-    #    else {
-    #        movie_panic($mid);
-    #        return 0;
-    #    }
-    #}
+    #D2 'cur_size', $$cur_size_r;
 
     # still downloading
     return 1;
@@ -849,7 +864,7 @@ sub file_progress {
 
 sub add_download {
 
-    my ($mid, $title, $size, $of) = @_;
+    my ($did, $mid, $title, $size, $of) = @_;
 
     # downloads added faster than poll_downloads can grab them (shouldn't
     # happen)
@@ -858,6 +873,7 @@ sub add_download {
     $G->last_idx_inc;
     $G->download_buf({
         idx => $G->last_idx,
+        did => $did,
         mid => $mid,
         size => $size,
         title => $title,
@@ -881,11 +897,20 @@ sub poll_downloads {
 
     my $mid = $db{mid};
 
+    my $did = $db{did};
+
+    # pass did?
+
     my $d = $D->new(
         # main id = mid
         id      => $mid,
         # for drawing pixmaps
         idx     => $idx,
+
+        # esp. for communicating with threads
+        did => $did,
+
+
         size    => $size,
         title   => $title,
         #of      => $of,
@@ -930,6 +955,7 @@ sub poll_downloads {
     {
         #my $eb_im = $W_eb->cancel_btn;
         my $eb_im = Gtk2::EventBox->new;
+        $eb_im->modify_bg('normal', $Col->white);
         $eb_im->add($im);
 
         $eb_im->signal_connect('enter-notify-event', sub {
@@ -962,6 +988,7 @@ sub poll_downloads {
     {
         #my $eb = $W_eb->info;
         my $eb = Gtk2::EventBox->new;
+        $eb->modify_bg('normal', $Col->white);
         $G->info_box->{$mid} = $eb;
         $eb->add($vb);
         $eb->signal_connect('button-press-event', sub {
@@ -1178,13 +1205,21 @@ sub download_finished {
 
 sub cancel_download {
     my ($mid) = @_;
+
+D 'cancelling mid', $mid;
     my $d = $D->get($mid) or warn, return;
 
-# should hook into tid
+    my $did = $d->did;
+
     my $idx = $d->idx;
 
-    # will cancel timeouts
-    $d->delete;
+    # XX
+    {
+        lock %Fish::Youtube::DownloadThreads::Status_by_did;
+        $Fish::Youtube::DownloadThreads::Status_by_did{$did}->{status} = 'cancelled';
+    }
+
+    #$d->delete;
 
     $G->last_idx_dec;
     # decrease idx of later dls by 1
@@ -1201,6 +1236,7 @@ sub cancel_download {
     $ib->destroy;
 
     update_scroll_area(-1);
+    redraw();
 }
 
 sub err {
@@ -1527,7 +1563,8 @@ sub simulate {
         my $of = "$SIM_TMP/blah$mid.flv";
         my $err_file = 'null';
         my $pid = -1234;
-        add_download($mid, $of, $size);
+my $did = undef;
+        add_download($did, $mid, $of, $size);
 
         my $fh = safeopen ">$of";
         select $fh;

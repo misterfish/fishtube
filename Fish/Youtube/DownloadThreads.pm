@@ -202,6 +202,8 @@ sub thread {
 
         # No more queueing. Communicate through md and status.
 
+        # give chance to cancel here  XX
+
         my $ok = $get->get;
         if ($ok) {
             $Status_by_did{$did}->{status} = 'done';

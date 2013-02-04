@@ -36,6 +36,12 @@ has idx => (
     },
 );
 
+# Totally unique, unlike mid. For communicating with threads.
+has did => (
+    is => 'ro',
+    isa => 'Num',
+);
+
 has size => (
     is  => 'ro',
     isa => 'Int',
