@@ -374,10 +374,10 @@ sub init {
 
     $W_sb->main->set_has_resize_grip(0);
 
-
     if (0) {
         my $b = Gtk2::Button->new('a');
         $b->signal_connect('clicked', sub {
+                redraw();
                 # some debug
         });
 
@@ -412,18 +412,16 @@ sub init {
         redraw();
     });
 
-    timeout(50, sub {
-
-            if ($D->is_anything_drawing) {
-                redraw();
-            }
+    timeout 50, sub {
+        if ($D->is_anything_drawing) {
+            redraw();
+        }
         1;
-    });
+    };
 
-    timeout(1000, sub { 
+    timeout 1000, sub { 
         update_movie_tree() ;
-    });
-
+    };
 
 my $SIMULATE = 0;
 
@@ -816,7 +814,10 @@ sub file_progress {
 
     my $d = $D->get($mid);
 
+    my $done;
     my $delete;
+
+    $$cur_size_r = $s->size;
 
     if ($status->{status} eq 'error') {
         my $e;
@@ -825,31 +826,29 @@ sub file_progress {
         return 0;
     }
     elsif ($status->{status} eq 'done') {
-        $delete = 1;
+        $done = 1;
         download_finished($mid);
         warn unless $$cur_size_r == $size;
     }
     elsif ($status->{status} eq 'cancelled') {
-D 'cancelled, ok';
         $delete = 1;
     }
 
-    $$cur_size_r = $s->size;
-
     # download object destroyed for some reason
     if (! $d and ! $simulate) {
-#        if (! $done and ! $simulate) {
-            movie_panic($mid);
-            return 0;
-#        }
+        movie_panic($mid);
+        return 0;
     }
-#    else {
-#    }
 
     $d->prog($$cur_size_r);
 
     if ($delete) {
+        # This will cancel the animation loop. Then we need one last redraw.
         $d->delete;
+        redraw();
+        return 0;
+    }
+    elsif ($done) {
         return 0;
     }
     else {
@@ -899,17 +898,14 @@ sub poll_downloads {
 
     my $did = $db{did};
 
-    # pass did?
-
     my $d = $D->new(
         # main id = mid
         id      => $mid,
         # for drawing pixmaps
         idx     => $idx,
 
-        # esp. for communicating with threads
+        # totally unique for each download, for communicating with threads
         did => $did,
-
 
         size    => $size,
         title   => $title,
@@ -1236,7 +1232,8 @@ D 'cancelling mid', $mid;
     $ib->destroy;
 
     update_scroll_area(-1);
-    redraw();
+    #D 'redrawing';
+    #redraw();
 }
 
 sub err {

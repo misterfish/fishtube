@@ -382,7 +382,7 @@ sub watch_movie {
         setsid();
         # mplayer spawns a new shell and this ends up 'defunct', causing
         # segfault on close?
-        exec qq, $MOVIE_PLAYER 2>/dev/null $o "$file" ,;
+        exec qq, $MOVIE_PLAYER >/dev/null 2>&1 $o "$file" ,;
     }
 }
 
