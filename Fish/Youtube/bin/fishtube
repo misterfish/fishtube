@@ -436,13 +436,13 @@ sub sanitize_filename {
 END {
     # die is ok in end
     for my $d (@Tmp_dirs) {
+        # fishtubeXXXX
         my $t = $TMP_TMPL;
         my $num_x = 0;
         $num_x++ while $t =~ s/X$//;
-        D $d;
-        D $t;
-        D $num_x;
         die unless $d =~ m| / $t .{$num_x} $|ix;
+        die if $d =~ m| ^ /usr |x;
+        die if $d =~ m| ^ /home/ [^/]+ /? $ |x;
         sys qq, rm -rf "$d" ,;
     }
 }
