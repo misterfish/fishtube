@@ -335,7 +335,6 @@ sub _start_download {
             $qo->enqueue( { type => $type } );
         }
         else {
-D2 ' i gave cancel';
             $qo->enqueue( { cancel => 1 });
             return -1;
         }

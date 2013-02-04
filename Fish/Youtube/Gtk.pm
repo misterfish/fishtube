@@ -86,8 +86,9 @@ my $SCROLL_TO_TOP_ON_ADD = 1;
 
 my $T = o(
     output_dir => "Output dir:",
-    pq  => "Preferred quality:",
-    pt  => "Preferred type:",
+    pq  => "Quality:",
+    pt  => "Format:",
+    fb  => "Allow fallback",
 );
 
 my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
@@ -312,7 +313,7 @@ sub init {
         $eb->add($W_lb->$_);
         set_cursor_timeout($eb, 'hand2');
         $eb->signal_connect('button-press-event', sub {
-                #
+            my ($prefq, $itaq) = get_format_dialog('pq', $G->qualities);
         });
     }
 
@@ -614,7 +615,6 @@ sub start_download {
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
     $wait_s .= "' ";
-    $G->is_waiting->{$mid} = $wait_s;
 
     $G->last_mid_in_statusbar($mid);
     $W_sb->main->push($mid, $wait_s);
@@ -710,7 +710,8 @@ my $itat = -1;
 
     # Thread launched and signalled 'ready'. 
 
-    #my $md = $Fish::Youtube::DownloadThreads::Metadata_by_tid{$tid};
+    $G->is_waiting->{$mid} = $wait_s;
+
     my $md = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did};
 
     if ($status->{status} eq 'error') {
@@ -1410,6 +1411,10 @@ sub list_choice_dialog {
     $opts //= {};
     my $allow_cancel = $opts->{allow_cancel} // 0;
 
+    my $dialog = make_dialog();
+
+    $dialog->set_size_request(300, -1);
+
     my (@keys, %lookup);
     if (ref $choices eq 'ARRAY') {
         @keys = @$choices;
@@ -1421,44 +1426,18 @@ sub list_choice_dialog {
     }
     else { die }
 
-    my $dialog = make_dialog();
+    my ($box, $combo_box) = make_list_choice($choices, $text);
 
-    my $id_col = 0;
-
-    my $model = Gtk2::ListStore->new ('Glib::String');
-    for (@keys) {
-        # iter, col, val
-        $model->set ($model->append, $id_col, $_);
-    }
-    my $combo_box = Gtk2::ComboBox->new ($model);
-
-    # to display anything, you must pack cell renderers into
-    # the combobox, which implements the Gtk2::CellLayout interface.
-    my $renderer = Gtk2::CellRendererText->new;
-    $combo_box->pack_start ($renderer, 0);
-    $combo_box->add_attribute ($renderer, text => $id_col);
-
-    $combo_box->set_active(0);
-
-    $dialog->set_size_request(300, -1);
     my $ca = $dialog->get_content_area;
+    my $aa = $dialog->get_action_area;
 
     my $fr = Gtk2::Frame->new;
+    $fr->add($box);
 
-    my $hb = Gtk2::HBox->new;
-    my $vb = Gtk2::VBox->new(0);
-
-    $fr->add($hb);
     $ca->add($fr);
-    $hb->pack_start($vb, 1, 0, 10);
-
-    my $l = $L->new($text);
-    $vb->pack_start($l, 1, 0, 10);
-    $vb->pack_start($combo_box, 0, 0, 10);
 
     my $response;
 
-    my $aa = $dialog->get_action_area;
     my $al = Gtk2::Alignment->new(0,0,0,0);
     my $ok = Gtk2::Button->new_from_stock('gtk-ok');
     $al->add($ok);
@@ -1640,6 +1619,96 @@ sub replace_file_dialog {
     }
 
     return 1;
+}
+
+
+sub get_format_dialog {
+    my ($type, $choices) = @_;
+    D 'h';
+    my $dialog = make_dialog();
+
+    my $c = $dialog->get_content_area;
+    my $a = $dialog->get_action_area;
+
+    my ($box, $combo_box) = make_list_choice($choices, $T->pq);
+
+    my $fb_cb = Gtk2::CheckButton->new('');
+    $fb_cb->set_active(1);
+
+    $fb_cb->signal_connect('toggled', sub {
+        state $state = 1;
+        $state = !$state;
+        say $state;
+    });
+
+#$box->pack_start($fb_cb, 1, 0, 10);
+    my $vb = Gtk2::VBox->new(0);
+    $vb->add($box);
+    $vb->add($fb_cb);
+
+    $c->add($vb);
+
+    cb_set_label($fb_cb, $T->fb, { size => 'small' } );
+
+    my $ok = Gtk2::Button->new_from_stock('gtk-ok');
+    my $cancel = Gtk2::Button->new_from_stock('gtk-cancel');
+
+    $a->add($_) for $ok, $cancel;
+
+    $dialog->show_all;
+    $dialog->run;
+
+}
+
+sub make_list_choice {
+    my ($choices, $text) = @_;
+
+    my (@keys, %lookup);
+    if (ref $choices eq 'ARRAY') {
+        @keys = @$choices;
+        %lookup = map { $_ => $_ } @keys;
+    }
+    elsif (ref $choices eq 'HASH') {
+        @keys = keys %$choices;
+        %lookup = %$choices;
+    }
+    else { die }
+
+    my $id_col = 0;
+
+    my $model = Gtk2::ListStore->new ('Glib::String');
+    for (@keys) {
+        # iter, col, val
+        $model->set ($model->append, $id_col, $_);
+    }
+    my $combo_box = Gtk2::ComboBox->new ($model);
+
+    # to display anything, you must pack cell renderers into
+    # the combobox, which implements the Gtk2::CellLayout interface.
+    my $renderer = Gtk2::CellRendererText->new;
+    $combo_box->pack_start ($renderer, 0);
+    $combo_box->add_attribute ($renderer, text => $id_col);
+
+    $combo_box->set_active(0);
+
+    my $vb = Gtk2::VBox->new(0);
+
+    my $l = $L->new($text);
+    #$vb->pack_start($l, 1, 0, 10);
+    $vb->pack_start($l, 1, 0, 2);
+    $vb->pack_start($combo_box, 0, 0, 10);
+
+    my $hb = Gtk2::HBox->new;
+    $hb->pack_start($vb, 1, 0, 10);
+
+    return ($hb, $combo_box);
+}
+
+sub cb_set_label {
+    my ($cb, $text, $opt) = @_;
+    
+    my $l = ($cb->get_children)[0];
+    $L->set_label($l, $text, $opt);
 }
 
 1;
