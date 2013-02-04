@@ -18,6 +18,9 @@ use Glib::Object::Subclass
 sub new {
     my ($class, @args) = @_;
     my $self = $class->SUPER::new;
+
+    $self->{opts} = {};
+
     $class->set_label($self, @args) if @args; 
     $self->modify_bg('normal', Gtk2::Gdk::Color->new(255,255,255,255));
     bless $self, $class;
@@ -31,6 +34,14 @@ sub set_label {
     shift unless ref $s;
 
     my ($self, $text, $opt) = @_;
+
+    if ($opt) {
+        $self->{opt} = $opt;
+    }
+    else {
+        $opt = $self->{opt};
+    }
+
     my $size = $opt->{size} // '';
     my $color = $opt->{color} // '';
 

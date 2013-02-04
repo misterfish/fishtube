@@ -86,8 +86,12 @@ my $SCROLL_TO_TOP_ON_ADD = 1;
 
 my $T = o(
     output_dir => "Output dir:",
-    pq  => "Quality:",
-    pt  => "Format:",
+    pq1  => "Quality:",
+    pq2  => "Preferred quality:",
+    pq3  => "Required quality:",
+    pt1  => "Format:",
+    pt2  => "Preferred format:",
+    pt3  => "Required format:",
     fb  => "Allow fallback",
 );
 
@@ -117,8 +121,7 @@ my $W_im = o(
 );
 
 my $W_eb = o(
-    pq          => Gtk2::EventBox->new,
-    pt          => Gtk2::EventBox->new,
+    pref_q_and_t        => Gtk2::EventBox->new,
     od          => Gtk2::EventBox->new,
 );
 
@@ -201,6 +204,9 @@ my $G = o(
 
     qualities => [ Fish::Youtube::Get->qualities ],
     types => [ Fish::Youtube::Get->types ],
+
+    is_tolerant_about_quality => 1,
+    is_tolerant_about_type => 1,
 
 );
 
@@ -308,12 +314,24 @@ sub init {
         });
     }
 
-    for ('pq', 'pt') {
-        my $eb = $W_eb->$_;
-        $eb->add($W_lb->$_);
+    {
+        my $eb = $W_eb->pref_q_and_t;
+        my $vb = Gtk2::VBox->new;
+        {
+            my $al = Gtk2::Alignment->new(0,0,0,0);
+            $al->add($W_lb->pq);
+            $vb->add($al);
+        }
+        {
+            my $al = Gtk2::Alignment->new(0,0,0,0);
+            $al->add($W_lb->pt);
+            $vb->add($al);
+        }
+        $eb->add($vb);
         set_cursor_timeout($eb, 'hand2');
         $eb->signal_connect('button-press-event', sub {
-            my ($prefq, $itaq) = get_format_dialog('pq', $G->qualities);
+            get_q_and_t_dialog();
+            set_pref_labels();
         });
     }
 
@@ -325,8 +343,7 @@ sub init {
 
     $W_lb->od->set_label($T->output_dir, { size => 'small', color => 'red'});
 
-    $W_lb->pq->set_label($T->pq . $G->qualities->[$G->preferred_quality], { size => 'small' });
-    $W_lb->pt->set_label($T->pt . $G->types->[$G->preferred_type], { size => 'small' });
+    set_pref_labels();
 
     # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
     my $oo = [qw/ expand shrink fill /];
@@ -350,20 +367,8 @@ sub init {
         $t->attach(left($auto_start_cb), 1, 2, 0, 1, $ooo, $ooo, 10, 10);
         $t->attach($W_eb->od, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
 
-        #$t->attach($W_eb->pq, 1, 2, 1, 2, $ooo, $ooo, 10, 10);
-        #$t->attach($W_eb->pt, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
-
         my $vb = Gtk2::VBox->new;
-        {
-            my $al = Gtk2::Alignment->new(0,0,0,0);
-            $al->add($W_eb->pq);
-            $vb->add($al);
-        }
-        {
-            my $al = Gtk2::Alignment->new(0,0,0,0);
-            $al->add($W_eb->pt);
-            $vb->add($al);
-        }
+        $vb->add($W_eb->pref_q_and_t);
         $t->attach($vb, 1, 2, 1, 2, $ooo, $ooo, 10, 10);
 
         $outer_box->pack_end($t, 0, 0, 10);
@@ -597,6 +602,8 @@ sub start_download {
     
     $G->last_did_inc;
     my $did = $G->last_did;
+
+D 'od???', $Output_dir;
 
     if (! $Output_dir) {
         # remove_all doesn't seem to work.
@@ -1621,42 +1628,69 @@ sub replace_file_dialog {
     return 1;
 }
 
-
-sub get_format_dialog {
-    my ($type, $choices) = @_;
-    D 'h';
+# sets 4 globals
+sub get_q_and_t_dialog {
     my $dialog = make_dialog();
 
     my $c = $dialog->get_content_area;
     my $a = $dialog->get_action_area;
 
-    my ($box, $combo_box) = make_list_choice($choices, $T->pq);
+    my ($boxq, $combo_boxq) = make_list_choice($G->qualities, $T->pq1);
+    my ($boxt, $combo_boxt) = make_list_choice($G->types, $T->pt1);
 
-    my $fb_cb = Gtk2::CheckButton->new('');
-    $fb_cb->set_active(1);
+    # return
+    my $is_tolerant_about_quality = $G->is_tolerant_about_quality;
+    my $is_tolerant_about_type = $G->is_tolerant_about_type;
+    my ($quality, $type);
 
-    $fb_cb->signal_connect('toggled', sub {
-        state $state = 1;
-        $state = !$state;
-        say $state;
+    my $fb_cb_q = Gtk2::CheckButton->new('');
+
+    $fb_cb_q->set_active($G->is_tolerant_about_quality);
+
+    $fb_cb_q->signal_connect('toggled', sub {
+        my $i = ! $G->is_tolerant_about_quality;
+        $G->is_tolerant_about_quality($i);
+        $is_tolerant_about_quality = $i;
     });
 
-#$box->pack_start($fb_cb, 1, 0, 10);
+    my $fb_cb_t = Gtk2::CheckButton->new('');
+    $fb_cb_t->set_active($is_tolerant_about_type);
+
+    $fb_cb_t->signal_connect('toggled', sub {
+        my $i = ! $G->is_tolerant_about_type;
+        $G->is_tolerant_about_type($i);
+        $is_tolerant_about_type = $i;
+    });
+
     my $vb = Gtk2::VBox->new(0);
-    $vb->add($box);
-    $vb->add($fb_cb);
+    $vb->add($boxq);
+    $vb->add($fb_cb_q);
+    $vb->add($boxt);
+    $vb->add($fb_cb_t);
 
     $c->add($vb);
 
-    cb_set_label($fb_cb, $T->fb, { size => 'small' } );
+    cb_set_label($fb_cb_q, $T->fb, { size => 'small' } );
+    cb_set_label($fb_cb_t, $T->fb, { size => 'small' } );
 
     my $ok = Gtk2::Button->new_from_stock('gtk-ok');
     my $cancel = Gtk2::Button->new_from_stock('gtk-cancel');
+
+    $ok->signal_connect('clicked', sub {
+        $quality = $combo_boxq->get_active;
+        $type = $combo_boxt->get_active;
+        $G->preferred_quality($quality);
+        $G->preferred_type($type);
+        $dialog->destroy;
+    });
 
     $a->add($_) for $ok, $cancel;
 
     $dialog->show_all;
     $dialog->run;
+
+    return ($quality, $is_tolerant_about_quality, $type,
+        $is_tolerant_about_type);
 
 }
 
@@ -1711,4 +1745,13 @@ sub cb_set_label {
     $L->set_label($l, $text, $opt);
 }
 
+sub set_pref_labels {
+    # desired / required 
+    my $q = $G->is_tolerant_about_quality ? $T->pq2 : $T->pq3;
+    my $t = $G->is_tolerant_about_type ? $T->pt2 : $T->pt3;
+    my $prefq = $G->qualities->[$G->preferred_quality];
+    my $preft = $G->types->[$G->preferred_type];
+    $W_lb->pq->set_label("$q $prefq", { size => 'small' });
+    $W_lb->pt->set_label("$t $preft", { size => 'small' });
+}
 1;
