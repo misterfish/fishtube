@@ -36,6 +36,12 @@ has idx => (
     },
 );
 
+# Totally unique, unlike mid. For communicating with threads.
+has did => (
+    is => 'ro',
+    isa => 'Num',
+);
+
 has size => (
     is  => 'ro',
     isa => 'Int',
@@ -48,17 +54,17 @@ has title => (
     required => 1,
 );
 
-has of => (
-    is  => 'ro',
-    isa => 'Str',
-    required => 1,
-);
+#has of => (
+#    is  => 'ro',
+#    isa => 'Str',
+#    required => 1,
+#);
 
-has pid => (
-    is  => 'ro',
-    isa => 'Int',
-    required => 1,
-);
+#has pid => (
+#    is  => 'ro',
+#    isa => 'Int',
+#    required => 1,
+#);
 
 has pixmap => (
     is  => 'rw',

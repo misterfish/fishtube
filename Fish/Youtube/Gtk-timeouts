@@ -2,6 +2,9 @@ package Fish::Youtube::Gtk;
 
 # needs refactor -- too much crap in this module
 
+
+use Fish::Youtube::DownloadThreads;
+
 use 5.10.0;
 
 use strict;
@@ -27,8 +30,6 @@ use Math::Trig ':pi';
 use Fish::Gtk2::Label;
 my $L = 'Fish::Gtk2::Label';
 
-use Fish::Youtube::DownloadThreads;
-
 use Fish::Youtube::Utility;
 use Fish::Youtube::Download;
 use Fish::Youtube::Anarchy;
@@ -42,7 +43,6 @@ use constant STATUS_OD => 100;
 use constant STATUS_MISC => 101;
 
 sub timeout;
-sub sig;
 
 sub err;
 sub error;
@@ -86,14 +86,8 @@ my $SCROLL_TO_TOP_ON_ADD = 1;
 
 my $T = o(
     output_dir => "Output dir:",
-    pq1  => "Quality:",
-    pq2  => "Preferred quality:",
-    pq3  => "Required quality:",
-    pt1  => "Format:",
-    pt2  => "Preferred format:",
-    pt3  => "Required format:",
-    fb  => "Allow fallback",
-    ask => "(ask)",
+    pq  => "Preferred quality:",
+    pt  => "Preferred type:",
 );
 
 my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
@@ -122,7 +116,8 @@ my $W_im = o(
 );
 
 my $W_eb = o(
-    pref_q_and_t        => Gtk2::EventBox->new,
+    pq          => Gtk2::EventBox->new,
+    pt          => Gtk2::EventBox->new,
     od          => Gtk2::EventBox->new,
 );
 
@@ -167,8 +162,6 @@ my $G = o(
     # calculated
     width => -1,
 
-    max_threads => Fish::Youtube::DownloadThreads->max_threads,
-
     auto_start_watching => 1,
 
     init => 0,
@@ -205,11 +198,8 @@ my $G = o(
     # mp4
     preferred_type => 0,
 
-    qualities => [ Fish::Youtube::Get->qualities, $T->ask ],
-    types => [ Fish::Youtube::Get->types, $T->ask ],
-
-    is_tolerant_about_quality => 1,
-    is_tolerant_about_type => 1,
+    qualities => [ Fish::Youtube::Get->qualities ],
+    types => [ Fish::Youtube::Get->types ],
 
 );
 
@@ -317,24 +307,12 @@ sub init {
         });
     }
 
-    {
-        my $eb = $W_eb->pref_q_and_t;
-        my $vb = Gtk2::VBox->new;
-        {
-            my $al = Gtk2::Alignment->new(0,0,0,0);
-            $al->add($W_lb->pq);
-            $vb->add($al);
-        }
-        {
-            my $al = Gtk2::Alignment->new(0,0,0,0);
-            $al->add($W_lb->pt);
-            $vb->add($al);
-        }
-        $eb->add($vb);
+    for ('pq', 'pt') {
+        my $eb = $W_eb->$_;
+        $eb->add($W_lb->$_);
         set_cursor_timeout($eb, 'hand2');
         $eb->signal_connect('button-press-event', sub {
-            get_q_and_t_dialog();
-            set_pref_labels();
+                #
         });
     }
 
@@ -346,10 +324,12 @@ sub init {
 
     $W_lb->od->set_label($T->output_dir, { size => 'small', color => 'red'});
 
-    set_pref_labels();
+    $W_lb->pq->set_label($T->pq . $G->qualities->[$G->preferred_quality], { size => 'small' });
+    $W_lb->pt->set_label($T->pt . $G->types->[$G->preferred_type], { size => 'small' });
 
+    # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
     my $oo = [qw/ expand shrink fill /];
-    my $ooo = 'fill';
+    my $ooo = 'shrink';
 
     {
         my $auto_start_cb = Gtk2::CheckButton->new('');
@@ -365,14 +345,24 @@ sub init {
         }
 
         my $t = $W_tb->options;
-
-        # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
         $t->attach($W_sb->main, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
         $t->attach(left($auto_start_cb), 1, 2, 0, 1, $ooo, $ooo, 10, 10);
         $t->attach($W_eb->od, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
 
+        #$t->attach($W_eb->pq, 1, 2, 1, 2, $ooo, $ooo, 10, 10);
+        #$t->attach($W_eb->pt, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
+
         my $vb = Gtk2::VBox->new;
-        $vb->add($W_eb->pref_q_and_t);
+        {
+            my $al = Gtk2::Alignment->new(0,0,0,0);
+            $al->add($W_eb->pq);
+            $vb->add($al);
+        }
+        {
+            my $al = Gtk2::Alignment->new(0,0,0,0);
+            $al->add($W_eb->pt);
+            $vb->add($al);
+        }
         $t->attach($vb, 1, 2, 1, 2, $ooo, $ooo, 10, 10);
 
         $outer_box->pack_end($t, 0, 0, 10);
@@ -387,6 +377,7 @@ sub init {
     if (0) {
         my $b = Gtk2::Button->new('a');
         $b->signal_connect('clicked', sub {
+                redraw();
                 # some debug
         });
 
@@ -423,13 +414,17 @@ sub init {
 
     timeout 50, sub {
         if ($D->is_anything_drawing) {
+            Gtk2::Gdk::Threads->enter;
             redraw();
+            Gtk2::Gdk::Threads->leave;
         }
         1;
     };
 
     timeout 1000, sub { 
+        Gtk2::Gdk::Threads->enter;
         update_movie_tree() ;
+        Gtk2::Gdk::Threads->leave;
     };
 
 my $SIMULATE = 0;
@@ -440,7 +435,10 @@ my $SIMULATE = 0;
 
     if ($profile_ask) {
         push @init_chain, sub {
+            Gtk2::Gdk::Threads->enter;
             my $pd = profile_dialog($profile_ask);
+            Gtk2::Gdk::Threads->leave;
+
             main::set_profile_dir($pd);
         };
     }
@@ -542,7 +540,10 @@ sub update_movie_tree {
         # magic.
         timeout 50, sub {
             if (tree_num_children($W_sl->hist) != $num_in_tree_before_add) {
+
+            Gtk2::Gdk::Threads->enter;
                 $W_sw->left->get_vscrollbar->set_value(0);
+            Gtk2::Gdk::Threads->leave;
                 return 0;
             }
             1;
@@ -565,10 +566,10 @@ sub timeout {
     # put enter/leave around them.
 
     my $new = sub {
-        Gtk2::Gdk::Threads->enter;
+#        Gtk2::Gdk::Threads->enter;
         # always scalar -- return is 0 or 1
         my $r = $sub->(@_);
-        Gtk2::Gdk::Threads->leave;
+#        Gtk2::Gdk::Threads->leave;
         $r;
     };
     Glib::Timeout->add($time, $new);
@@ -613,25 +614,17 @@ sub start_download {
         return;
     }
 
-    {
-        my $max_threads = $G->max_threads;
-        my $active_threads = Fish::Youtube::DownloadThreads->active_threads;
-        D2 'max_threads', $max_threads, 'active_threads', $active_threads;
-
-        if ($max_threads == $active_threads) {
-            warn $_, mess $_ for "max ($max_threads) downloads reached (increase \$NUM_THREADS)";
-            return;
-        }
-    }
-    
     $G->download_successful->{$mid} = 0;
     $G->auto_launched->{$mid} = 0;
 
     my $box;
 
+    #my $tmp = main::make_tmp_dir();
+
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
     $wait_s .= "' ";
+    $G->is_waiting->{$mid} = $wait_s;
 
     $G->last_mid_in_statusbar($mid);
     $W_sb->main->push($mid, $wait_s);
@@ -639,27 +632,35 @@ sub start_download {
     state $first = 1;
 
     my $manual;
+    my $of;
 
-    my $prefq = $G->qualities->[$G->preferred_quality];
-    my $preft = $G->types->[$G->preferred_type];
-    my $itaq = $G->is_tolerant_about_quality;
-    my $itat = $G->is_tolerant_about_type;
-
-    $_ eq $T->ask and $_ = '' for $prefq, $preft;
-
-    D2 'prefq', $prefq, 'preft', $preft;
+my $prefq = '';
+my $preft = '';
+my $itaq = -1;
+my $itat = -1;
 
     my $async = 1;
     $async = 0 unless $prefq && $preft;
 
     # manual download -- get name from youtube-get
-    # XX
-    # if any prompting, we can't know outfile. 
-    # also if async, we can't know it.
-    # always overwrite if async.
     if (! $t) {
         $manual = 1;
     } 
+    
+    else {
+        # if any prompting, we can't know outfile. 
+        # otherwise, set it here, to allow async
+
+        if ($async) {
+            $of = "$Output_dir/$t.EXT";
+
+            main::sanitize_filename(\$of);
+
+            if (-r $of) {
+                return unless replace_file_dialog($of);
+            }
+        }
+    }
 
     # add puntjes to waiting msg
     timeout 300, sub {
@@ -668,9 +669,11 @@ sub start_download {
         return 0 unless $text = $G->is_waiting->{$mid};
 
         $text .= '.';
+            Gtk2::Gdk::Threads->enter;
         $W_sb->main->pop($mid);
         $W_sb->main->push($mid, $text);
         $G->is_waiting->{$mid} = $text;
+            Gtk2::Gdk::Threads->leave;
         1;
     };
 
@@ -681,14 +684,16 @@ sub start_download {
         $first = 0;
     }
 
+    # make some of these vars internal to main todo
+    #my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $Output_dir, $force_get);
+    # we are still in an event callback
     # positive means no err so far and thread was launched.
     # undef means err
     # -1 means cancelled.
     my $tid;
 
     if ($async) {
-        #$tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
-        $tid = main::start_download_async($did, $mid, $u, $prefq, $preft, $itaq, $itat);
+        $tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
     }
     else {
         $tid = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
@@ -709,16 +714,16 @@ sub start_download {
 
         return;
     }
+    # not sure if this happens.
     elsif ($tid == -1) {
-        # cancelled 
-        D2 'cancelled.';
+        #cancelled 
+        D 'cancelled.';
         return;
     }
 
     # Thread launched and signalled 'ready'. 
 
-    $G->is_waiting->{$mid} = $wait_s;
-
+    #my $md = $Fish::Youtube::DownloadThreads::Metadata_by_tid{$tid};
     my $md = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did};
 
     if ($status->{status} eq 'error') {
@@ -727,74 +732,51 @@ sub start_download {
         warn $e if $e = $status->{errstr};
     }
 
-    my $size;
+    my $size = $md->{size} or warn, return;
+    $md->{of} or warn, return;
 
-    if ($async) {
-        # wait for md to get filled.
-        my $i = 0;
-        timeout 200, sub {
-            ++$i > 20 and war ("timeout waiting for async metadata"), return;
+    timeout 500, sub {
+        #D 'checking for tid', $tid;
 
-            if ($size = $md->{size}) {
+            Gtk2::Gdk::Threads->enter;
+        if ($status->{status} eq 'error') {
+            war "Download thread reported error.";
+            my $e;
+            warn $e if $e = $status->{errstr};
+            movie_panic_while_waiting($mid, $e);
+            Gtk2::Gdk::Threads->leave;
+            return 0;
+        }
 
-                D2 'got size', $size, 'did', $did;
+        # name is only needed if we didn't specify $of
+        $of //= $md->{of};
 
-                my $of = $md->{of} or warn, return;
+        D2 'got md', 'name', $of, 'size', $size;
 
-                timeout 500, sub { 
-                    watch_download($did, $mid, $t, $status, $of, $size, $manual) 
-                };
+        # got it, add download and kill timeout
 
-                return 0;
-            }
+        if ($manual) {
+            $t = basename $of;
+            $t =~ s/\.\w+$//;
+        }
 
-            1;
+            Gtk2::Gdk::Threads->enter;
+        add_download($did, $mid, $t, $size, $of);
+            Gtk2::Gdk::Threads->leave;
+
+        my $cur_size = -1;
+
+        timeout 200, sub { 
+            return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $status);
         };
-    }
-    else {
-        my $size = $md->{size} or warn, return;
-        my $of = $md->{of} or warn, return;
+        
+        timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
 
-        timeout 500, sub { 
-            watch_download($did, $mid, $t, $status, $of, $size, $manual) 
-        };
-    }
-    # / child wait
-}
+        D2 'gtk: download started, outer timeout over';
 
-sub watch_download {
-    my ($did, $mid, $t, $status, $of, $size, $manual) = @_;
-
-    if ($status->{status} eq 'error') {
-        war "Download thread reported error.";
-        my $e;
-        warn $e if $e = $status->{errstr};
-        movie_panic_while_waiting($mid, $e);
         return 0;
     }
-
-    D2 'got md', 'name', $of, 'size', $size;
-
-    # got it, add download and kill timeout
-
-    if ($manual) {
-        $t = basename $of;
-        $t =~ s/\.\w+$//;
-    }
-
-    add_download($did, $mid, $t, $size, $of);
-
-    my $cur_size = -1;
-
-    timeout 200, sub { 
-        return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $status);
-    };
-    
-    timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
-
-    D2 'gtk: download started, outer timeout over';
-
-    return 0;
+    # / child wait
 }
 
 sub auto_start_watching {
@@ -864,7 +846,6 @@ sub file_progress {
         warn unless $$cur_size_r == $size;
     }
     elsif ($status->{status} eq 'cancelled') {
-        D2 'cancelled!';
         $delete = 1;
     }
 
@@ -877,8 +858,9 @@ sub file_progress {
     $d->prog($$cur_size_r);
 
     if ($delete) {
-        #redraw();
-        erase_download_entry($mid);
+        # This will cancel the animation loop. Then we need one last redraw.
+        $d->delete;
+        redraw();
         return 0;
     }
     elsif ($done) {
@@ -897,8 +879,6 @@ sub file_progress {
 sub add_download {
 
     my ($did, $mid, $title, $size, $of) = @_;
-
-    D2 'ad', 'did', $did;
 
     # downloads added faster than poll_downloads can grab them (shouldn't
     # happen)
@@ -984,6 +964,7 @@ sub poll_downloads {
     $im->set_from_pixbuf($pix_normal);
 
     {
+        #my $eb_im = $W_eb->cancel_btn;
         my $eb_im = Gtk2::EventBox->new;
         $eb_im->modify_bg('normal', $Col->white);
         $eb_im->add($im);
@@ -1053,6 +1034,8 @@ sub poll_downloads {
         state $last = -1;
         $size // return 1;
 
+        Gtk2::Gdk::Threads->enter;
+
         my $err;
 
         # get every time.
@@ -1061,12 +1044,16 @@ sub poll_downloads {
         my $p = $d->prog;
         if (not defined $p) {
             D2 "p not defined (yet)";
+            # try again
+            Gtk2::Gdk::Threads->leave;
             return 1;
         }
 
         # shouldn't happen
         if (not $pixmap) {
             warn "pixmap not defined";
+            # don't try again
+            Gtk2::Gdk::Threads->leave;
             return 0;
         }
 
@@ -1084,6 +1071,7 @@ sub poll_downloads {
         }
         $last = $p;
 
+
         if ($perc >= 100) {
             my $surface = $anarchy->draw(1, { last => 1});
 
@@ -1095,8 +1083,10 @@ sub poll_downloads {
             redraw();
             
             $d->stopped_drawing;
+        Gtk2::Gdk::Threads->leave;
             return 0;
         }
+        Gtk2::Gdk::Threads->leave;
         return 1;
     });
 
@@ -1119,6 +1109,7 @@ sub configure_main {
     }
     else {
         return if $ew == $G->width and $eh == $G->height;
+        #D 'configuring', 'width', $ew, 'height', $eh;
     }
 
     $G->width($ew);
@@ -1231,28 +1222,15 @@ sub cancel_download {
 
     my $did = $d->did;
 
+    my $idx = $d->idx;
+
     # XX
     {
         lock %Fish::Youtube::DownloadThreads::Status_by_did;
         $Fish::Youtube::DownloadThreads::Status_by_did{$did}->{status} = 'cancelled';
     }
-    {
-        lock %Fish::Youtube::DownloadThreads::Cancel_by_did;
-        $Fish::Youtube::DownloadThreads::Cancel_by_did{$did} = 1;
-    }
 
-}
-
-sub erase_download_entry {
-    my ($mid) = @_;
-
-    my $d = $D->get($mid) or warn, return;
-
-    my $idx = $d->idx;
-
-    # This will cancel the animation loop. Then we erase the stuff and do
-    # one last redraw.
-    $d->delete;
+    #$d->delete;
 
     $G->last_idx_dec;
     # decrease idx of later dls by 1
@@ -1270,7 +1248,7 @@ sub erase_download_entry {
 
     update_scroll_area(-1);
     #D 'redrawing';
-    redraw();
+    #redraw();
 }
 
 sub err {
@@ -1336,6 +1314,7 @@ sub inject_movie {
     state $i = 0;
     # check url?
     $G->last_mid_inc;
+    #start_download($url, 'manual ' . ++$i, $Last_mid);
     start_download($url, undef, $G->last_mid);
 }
 
@@ -1437,10 +1416,6 @@ sub list_choice_dialog {
     $opts //= {};
     my $allow_cancel = $opts->{allow_cancel} // 0;
 
-    my $dialog = make_dialog();
-
-    $dialog->set_size_request(300, -1);
-
     my (@keys, %lookup);
     if (ref $choices eq 'ARRAY') {
         @keys = @$choices;
@@ -1452,18 +1427,44 @@ sub list_choice_dialog {
     }
     else { die }
 
-    my ($box, $combo_box) = make_list_choice($choices, $text);
+    my $dialog = make_dialog();
 
+    my $id_col = 0;
+
+    my $model = Gtk2::ListStore->new ('Glib::String');
+    for (@keys) {
+        # iter, col, val
+        $model->set ($model->append, $id_col, $_);
+    }
+    my $combo_box = Gtk2::ComboBox->new ($model);
+
+    # to display anything, you must pack cell renderers into
+    # the combobox, which implements the Gtk2::CellLayout interface.
+    my $renderer = Gtk2::CellRendererText->new;
+    $combo_box->pack_start ($renderer, 0);
+    $combo_box->add_attribute ($renderer, text => $id_col);
+
+    $combo_box->set_active(0);
+
+    $dialog->set_size_request(300, -1);
     my $ca = $dialog->get_content_area;
-    my $aa = $dialog->get_action_area;
 
     my $fr = Gtk2::Frame->new;
-    $fr->add($box);
 
+    my $hb = Gtk2::HBox->new;
+    my $vb = Gtk2::VBox->new(0);
+
+    $fr->add($hb);
     $ca->add($fr);
+    $hb->pack_start($vb, 1, 0, 10);
+
+    my $l = $L->new($text);
+    $vb->pack_start($l, 1, 0, 10);
+    $vb->pack_start($combo_box, 0, 0, 10);
 
     my $response;
 
+    my $aa = $dialog->get_action_area;
     my $al = Gtk2::Alignment->new(0,0,0,0);
     my $ok = Gtk2::Button->new_from_stock('gtk-ok');
     $al->add($ok);
@@ -1540,17 +1541,21 @@ sub set_output_dir {
     $Output_dir = $od;
     main::set_output_dir($Output_dir);
 
-    timeout(100, sub {
+    timeout 100, sub {
         $W_lb->od or return 1;
+            Gtk2::Gdk::Threads->enter;
         $W_lb->od->set_label($T->output_dir . " $Output_dir", { size => 'small' });
+            Gtk2::Gdk::Threads->leave;
         0;
-    });
+    };
 }
 
 sub set_cursor_timeout {
     my ($widget, $curs) = @_;
     timeout(50, sub { 
-        return ! set_cursor($widget, $curs) 
+            Gtk2::Gdk::Threads->enter;
+        return ! set_cursor($widget, $curs) ;
+            Gtk2::Gdk::Threads->leave;
     } );
 }
 
@@ -1618,6 +1623,7 @@ sub left {
 # ret 0: cancel, 1: go
 sub replace_file_dialog {
     my $of = shift;
+            Gtk2::Gdk::Threads->enter;
 
     my $dialog = Gtk2::MessageDialog->new ($W,
         'modal',
@@ -1635,6 +1641,7 @@ sub replace_file_dialog {
 
     $dialog->run;
 
+            Gtk2::Gdk::Threads->leave;
     if ($response ne 'yes') {
         return;
     }
@@ -1646,168 +1653,5 @@ sub replace_file_dialog {
 
     return 1;
 }
-
-# sets 4 globals
-sub get_q_and_t_dialog {
-    my $dialog = make_dialog();
-
-    my $c = $dialog->get_content_area;
-    my $a = $dialog->get_action_area;
-
-    my $idx_ask_q = -1 + scalar list $G->qualities;
-    my $idx_ask_t = -1 + scalar list $G->types;
-
-    my ($boxq, $combo_boxq) = make_list_choice($G->qualities, $T->pq1);
-    my ($boxt, $combo_boxt) = make_list_choice($G->types, $T->pt1);
-
-    $combo_boxq->set_active($G->preferred_quality);
-    $combo_boxt->set_active($G->preferred_type);
-
-    # return
-    my $is_tolerant_about_quality = $G->is_tolerant_about_quality;
-    my $is_tolerant_about_type = $G->is_tolerant_about_type;
-    my ($quality, $type);
-
-    my $fb_cb_q = Gtk2::CheckButton->new('');
-
-    $fb_cb_q->set_active($G->is_tolerant_about_quality);
-
-    sig $fb_cb_q, 'toggled', sub {
-        my $i = ! $G->is_tolerant_about_quality;
-        $G->is_tolerant_about_quality($i);
-        $is_tolerant_about_quality = $i;
-    };
-
-    my $fb_cb_t = Gtk2::CheckButton->new('');
-    $fb_cb_t->set_active($is_tolerant_about_type);
-
-    sig $fb_cb_t, 'toggled', sub {
-        my $i = ! $G->is_tolerant_about_type;
-        $G->is_tolerant_about_type($i);
-        $is_tolerant_about_type = $i;
-    };
-
-    sig $combo_boxq, 'changed', sub {
-        if ($combo_boxq->get_active == $idx_ask_q) {
-            $fb_cb_q->set_active(1);
-            $fb_cb_q->set_sensitive(0);
-        }
-        else {
-            $fb_cb_q->set_sensitive(1);
-        }
-    };
-
-    sig $combo_boxt, 'changed', sub {
-        if ($combo_boxt->get_active == $idx_ask_t) {
-            $fb_cb_t->set_active(1);
-            $fb_cb_t->set_sensitive(0);
-        }
-        else {
-            $fb_cb_t->set_sensitive(1);
-        }
-    };
-
-    my $vb = Gtk2::VBox->new(0);
-    $vb->add($boxq);
-    $vb->add($fb_cb_q);
-    $vb->add($boxt);
-    $vb->add($fb_cb_t);
-
-    $c->add($vb);
-
-    cb_set_label($fb_cb_q, $T->fb, { size => 'small' } );
-    cb_set_label($fb_cb_t, $T->fb, { size => 'small' } );
-
-    my $ok = Gtk2::Button->new_from_stock('gtk-ok');
-    my $cancel = Gtk2::Button->new_from_stock('gtk-cancel');
-
-    sig $ok, 'clicked', sub {
-        $quality = $combo_boxq->get_active;
-        $type = $combo_boxt->get_active;
-        $G->preferred_quality($quality);
-        $G->preferred_type($type);
-        $dialog->destroy;
-    };
-
-    sig $cancel, 'clicked', sub {
-        $dialog->destroy;
-    };
-
-    $a->add($_) for $ok, $cancel;
-
-    $dialog->show_all;
-    $dialog->run;
-
-    return ($quality, $is_tolerant_about_quality, $type,
-        $is_tolerant_about_type);
-
-}
-
-sub make_list_choice {
-    my ($choices, $text) = @_;
-
-    my (@keys, %lookup);
-    if (ref $choices eq 'ARRAY') {
-        @keys = @$choices;
-        %lookup = map { $_ => $_ } @keys;
-    }
-    elsif (ref $choices eq 'HASH') {
-        @keys = keys %$choices;
-        %lookup = %$choices;
-    }
-    else { die }
-
-    my $id_col = 0;
-
-    my $model = Gtk2::ListStore->new ('Glib::String');
-    for (@keys) {
-        # iter, col, val
-        $model->set ($model->append, $id_col, $_);
-    }
-    my $combo_box = Gtk2::ComboBox->new ($model);
-
-    # to display anything, you must pack cell renderers into
-    # the combobox, which implements the Gtk2::CellLayout interface.
-    my $renderer = Gtk2::CellRendererText->new;
-    $combo_box->pack_start ($renderer, 0);
-    $combo_box->add_attribute ($renderer, text => $id_col);
-
-    $combo_box->set_active(0);
-
-    my $vb = Gtk2::VBox->new(0);
-
-    my $l = $L->new($text);
-    #$vb->pack_start($l, 1, 0, 10);
-    $vb->pack_start($l, 1, 0, 2);
-    $vb->pack_start($combo_box, 0, 0, 10);
-
-    my $hb = Gtk2::HBox->new;
-    $hb->pack_start($vb, 1, 0, 10);
-
-    return ($hb, $combo_box);
-}
-
-sub cb_set_label {
-    my ($cb, $text, $opt) = @_;
-    
-    my $l = ($cb->get_children)[0];
-    $L->set_label($l, $text, $opt);
-}
-
-sub set_pref_labels {
-    # desired / required 
-    my $q = $G->is_tolerant_about_quality ? $T->pq2 : $T->pq3;
-    my $t = $G->is_tolerant_about_type ? $T->pt2 : $T->pt3;
-    my $prefq = $G->qualities->[$G->preferred_quality];
-    my $preft = $G->types->[$G->preferred_type];
-    $W_lb->pq->set_label("$q $prefq", { size => 'small' });
-    $W_lb->pt->set_label("$t $preft", { size => 'small' });
-}
-
-sub sig {
-    my ($w, $sig, $sub) = @_;
-    $w->signal_connect($sig, $sub);
-}
-
 
 1;

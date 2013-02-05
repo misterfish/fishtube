@@ -27,8 +27,9 @@ use warnings;
 use threads;
 use threads::shared;
 
-# as early as possible
-use Fish::Youtube::Test;
+# as early as possible to keep copies smaller
+# but stuff disappears after Gtk is inited ...
+#use Fish::Youtube::DownloadThreads;
 
 use Gtk2;
 
@@ -47,10 +48,20 @@ use Fish::Youtube::History;
 use Fish::Youtube::Get;
 
 
+#XX
+use Fish::Youtube::DownloadThreads;
+
 sub error;
 sub war;
 
 #%
+
+my $TMP_TMPL = 'fishtubeXXXX';
+
+# force END
+$SIG{KILL} = $SIG{INT} = sub { exit };
+
+my @Tmp_dirs;
 
 my $TMP = '/tmp';
 
@@ -214,62 +225,176 @@ sub war {
     warn join ' ', @s, "\n";
 }
 
-
-sub get_tmp_dir {
-    return File::Temp->newdir( 'fishtubeXXXX', DIR => $TMP, CLEANUP => 1 );
+sub make_tmp_dir {
+    my $d = File::Temp->newdir( $TMP_TMPL, DIR => $TMP, CLEANUP => 1 );
+    # so it doesn't go out of scope
+    push @Tmp_dirs, $d;
+    $d->dirname;
 }
 
-sub start_download {
+# want prompting for qual and type
+# still in event loop -- no enter/exit necessary
+sub start_download_sync {
 
+    my $did = shift // die;
+
+    # used?
     my $mid = shift // die;
+
     my $url = shift or die;
-    # can be undef -- let youtube get make the of
-    my $of = shift;
-    my $tmp = shift or die;
     my $output_dir = shift or die;
-    my $force_get = shift // 0;
 
-    # bg start
-    my $o = $of ? qq| -o "$of"| : "-d '$output_dir'";
+    # one or both are '', meaning prompt
+    my $prefq = shift // die;
+    my $preft = shift // die;
 
-    my $err_file = "$tmp/yt-err";
-    my $force = $force_get ? '-f' : '';
-    # anything on out is an err
-    # quiet, no terminal (i.e. disable colors)
-my $SMALL = 0;
-my $s = $SMALL ? '-s small' : '';
-    my $cmd = qq, $main::bin_dir/youtube-get 2>"$err_file" $s $force -q -T -t "$tmp" $o "$url ",;
-    D2 'cmd', $cmd;
+    # is_tolerant
+    # is always 1 if the corresponding pref is ''.
+    my $itaq = shift // die;
+    my $itat = shift // die;
+    $itaq = 1 unless $prefq;
+    $itat = 1 unless $preft;
 
-    my ($pid) = sync_exec $cmd;
-    #my ($pid, $fh) = sync_popen_noshell 'r', $cmd;
-    if ($pid) {
+    my $msg = {
+        output_dir => $output_dir,
 
-        my $t = new Proc::ProcessTable;
-        my @children = grep { 
-            $_->{ppid} == $pid and
-            $_->{cmndline} =~ /youtube-get/
-        } @{$t->table};
+        did => $did,
+        url => $url,
+        prefq => $prefq,
+        preft => $preft,
+        itaq => $itaq,
+        itat => $itat,
 
-        # already died
-        if (! @children) {
-            return undef;
-        }
-        # weird
-        elsif ( @children > 1 ) {
-            die;
-        }
-        else {
-            return ((shift @children)->pid, $err_file);
-        }
+        async => 0,
+    };
+
+    return _start_download($did, $msg);
+}
+
+sub start_download_async {
+    my $did = shift // die;
+
+    #used ?
+    my $mid = shift // die;
+
+    my $url = shift or die;
+
+    #my $output_file = shift or die;
+    my $prefq = shift // die;
+    my $preft = shift // die;
+    # is_tolerant
+    my $itaq = shift // die;
+    my $itat = shift // die;
+
+    D2 'starting async.';
+
+    my $msg = {
+        # wrong, we don't know it yet.
+        #of => $output_file,
+
+        did => $did,
+        url => $url,
+        prefq => $prefq,
+        preft => $preft,
+        itaq => $itaq,
+        itat => $itat,
+
+        async => 1,
+    };
+
+    return _start_download($did, $msg);
+}
+
+sub _start_download {
+
+    my ($did, $msg) = @_;
+
+    my $tmp_dir = main::make_tmp_dir();
+
+    $msg->{tmp} = $tmp_dir;
+
+    my $t = 'Fish::Youtube::DownloadThreads';
+
+    my $tid = $t->queue_idle->dequeue;
+
+    return if $tid < 0; # ?
+
+    my $qo = $t->queues_in->{$tid};
+    my $qi = $t->queues_out->{$tid};
+
+    my $response;
+
+    # send init msg
+    $qo->enqueue($msg);
+
+    # recv: 
+    # {error => 1} 
+    # sync: available quals.
+    # async: { async => 1 }
+    $response = $qi->dequeue or warn, return;
+
+    my $e;
+    $e = $response->{error} and warn ($response->{errstr} // ''), return;
+
+    if ($msg->{async}) {
+        # We don't care about anything any more, just let it go.
+        # This signals caller to start watching.
+        $response->{async} or warn, return;
+        return $tid;
     }
     else {
-        my @o = ($url);
-        push @o, $of if $of;
-        D R "Couldn't get movie", @o;
-        return;
+
+        my @quals = list $response->{quals};
+
+        my $qual = Fish::Youtube::Gtk::list_choice_dialog(\@quals, "Choose quality", {allow_cancel => 1});
+
+        if ($qual) {
+            $qo->enqueue( { qual => $qual } );
+        }
+        else {
+            $qo->enqueue( { cancel => 1 });
+            return -1;
+        }
+
+        # types for this qual
+        $response = $qi->dequeue or warn, return;
+
+        my @types = list $response->{types} or warn, return;
+
+        my $type = Fish::Youtube::Gtk::list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
+
+        if ($type) {
+            $qo->enqueue( { type => $type } );
+        }
+        else {
+            $qo->enqueue( { cancel => 1 });
+            return -1;
+        }
+
+        $response = $qi->dequeue or warn, return;
     }
+
+    $response->{error} and warn, return;
+    $response->{got_metadata} or warn, return;
+
+    my $of = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did}->{of} or warn, return;
+
+    if (-r $of) {
+        D 'trying';
+        my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
+     
+        if (!$ok) {
+            $qo->enqueue({ cancel => 1 });
+            return -1;
+        }
+    }
+    $qo->enqueue({ go => 1});
+
+    # This signals caller to start watching.
+    return $tid;
 }
+
+
 
 sub process_running {
     my ($pid) = @_;
@@ -297,17 +422,19 @@ sub watch_movie {
     }
 
     my $o = $MOVIE_PLAYER_OPTS // '';
-    #my $pid = sync_exec qq, $MOVIE_PLAYER $o "$file" ,;
-    if (my $pid = fork) {
-        D 'child pid', $pid;
-    }
-    else {
-        # not necessary
-        setsid();
-        # mplayer spawns a new shell and this ends up 'defunct', causing
-        # segfault on close?
-        exec qq, $MOVIE_PLAYER $o "$file" ,;
-    }
+
+    my $pid = sync_exec qq, $MOVIE_PLAYER >/dev/null 2>&1 $o "$file" ,;
+
+    #if (my $pid = fork) {
+    #    D 'child pid', $pid;
+    #}
+    #else {
+    #    # not necessary
+    #    setsid();
+    #    # mplayer spawns a new shell and this ends up 'defunct', causing
+    #    # segfault on close?
+    #    exec qq, $MOVIE_PLAYER >/dev/null 2>&1 $o "$file" ,;
+    #}
 }
 
 sub set_output_dir {
@@ -326,3 +453,27 @@ sub check_output_dir {
     return $ok;
 }
 
+sub sanitize_filename {
+    my $tr = shift;
+    $$tr =~ s/^\s+//;
+    $$tr =~ s/\s+$//;
+    $$tr =~ s/[\n:!\*<>\`\$]//g;
+    
+    $$tr =~ s|/|-|g;
+    $$tr =~ s|\\|-|g;
+    $$tr =~ s/"/'/g;
+}
+
+END {
+    # die is ok in end
+    for my $d (@Tmp_dirs) {
+        # fishtubeXXXX
+        my $t = $TMP_TMPL;
+        my $num_x = 0;
+        $num_x++ while $t =~ s/X$//;
+        die unless $d =~ m| / $t .{$num_x} $|ix;
+        die if $d =~ m| ^ /usr |x;
+        die if $d =~ m| ^ /home/ [^/]+ /? $ |x;
+        sys qq, rm -rf "$d" ,;
+    }
+}
