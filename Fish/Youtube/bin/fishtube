@@ -380,7 +380,6 @@ sub _start_download {
     my $of = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did}->{of} or warn, return;
 
     if (-r $of) {
-        D 'trying';
         my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
      
         if (!$ok) {

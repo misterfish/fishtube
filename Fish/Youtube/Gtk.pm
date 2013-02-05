@@ -43,6 +43,8 @@ use constant STATUS_MISC => 101;
 
 sub timeout;
 sub sig;
+sub set_cursor;
+sub normal_cursor;
 
 sub err;
 sub error;
@@ -588,13 +590,16 @@ sub get_color {
 sub row_activated {
     my ($obj, $path, $column) = @_;
 
-    set_cursor($W, 'watch');
+    #set_cursor($W, 'watch');
 
     my $row_idx = $path->get_indices;
     my $d = $G->movie_data->[$row_idx] or die;
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
-    start_download($u, $t, $mid);
+    my $ok = start_download($u, $t, $mid);
+
+    # otherwise restored within start_download
+    normal_cursor $W;
 }
 
 sub start_download {
@@ -651,6 +656,8 @@ sub start_download {
 
     my $async = 1;
     $async = 0 unless $prefq && $preft;
+
+    set_cursor($W, 'watch') unless $async;
 
     # manual download -- get name from youtube-get
     # XX
@@ -728,6 +735,8 @@ sub start_download {
     }
 
     my $size;
+
+    set_cursor($W, 'x-cursor') unless $async;
 
     if ($async) {
         # wait for md to get filled.
@@ -1809,5 +1818,9 @@ sub sig {
     $w->signal_connect($sig, $sub);
 }
 
+sub normal_cursor {
+    my ($w) = shift;
+    set_cursor $w, 'left-ptr';
+}
 
 1;
