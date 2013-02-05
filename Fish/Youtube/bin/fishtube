@@ -247,6 +247,7 @@ sub start_download_sync {
     my $msg = {
         did => $did,
         url => $url,
+        output_dir => $output_dir,
         prefq => $prefq,
         preft => $preft,
         itaq => 1,

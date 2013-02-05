@@ -603,8 +603,6 @@ sub start_download {
     $G->last_did_inc;
     my $did = $G->last_did;
 
-D 'od???', $Output_dir;
-
     if (! $Output_dir) {
         # remove_all doesn't seem to work.
         $W_sb->main->pop(STATUS_OD);

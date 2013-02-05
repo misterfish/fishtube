@@ -89,7 +89,12 @@ sub thread {
 
         my @p;
         if (! $async) {
-            @p = ( no_init_params => 1 );
+            # can be undef
+            my $output_dir = $msg->{output_dir} // die;
+            @p = ( 
+                dir => $output_dir,
+                no_init_params => 1,
+            );
         }
         else {
             @p = (
