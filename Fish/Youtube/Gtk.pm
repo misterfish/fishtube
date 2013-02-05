@@ -43,6 +43,7 @@ use constant STATUS_OD => 100;
 use constant STATUS_MISC => 101;
 
 sub timeout;
+sub sig;
 
 sub err;
 sub error;
@@ -202,8 +203,8 @@ my $G = o(
     # mp4
     preferred_type => 0,
 
-    qualities => [ Fish::Youtube::Get->qualities ],
-    types => [ Fish::Youtube::Get->types ],
+    qualities => [ Fish::Youtube::Get->qualities, '(ask)' ],
+    types => [ Fish::Youtube::Get->types, '(ask)' ],
 
     is_tolerant_about_quality => 1,
     is_tolerant_about_type => 1,
@@ -345,9 +346,8 @@ sub init {
 
     set_pref_labels();
 
-    # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
     my $oo = [qw/ expand shrink fill /];
-    my $ooo = 'shrink';
+    my $ooo = 'fill';
 
     {
         my $auto_start_cb = Gtk2::CheckButton->new('');
@@ -363,6 +363,8 @@ sub init {
         }
 
         my $t = $W_tb->options;
+
+        # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
         $t->attach($W_sb->main, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
         $t->attach(left($auto_start_cb), 1, 2, 0, 1, $ooo, $ooo, 10, 10);
         $t->attach($W_eb->od, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
@@ -383,7 +385,6 @@ sub init {
     if (0) {
         my $b = Gtk2::Button->new('a');
         $b->signal_connect('clicked', sub {
-                redraw();
                 # some debug
         });
 
@@ -629,10 +630,10 @@ sub start_download {
     my $manual;
     my $of;
 
-my $prefq = '';
-my $preft = '';
-my $itaq = -1;
-my $itat = -1;
+    my $prefq = $G->preferred_quality;
+    my $preft = $G->preferred_type;
+    my $itaq = $G->is_tolerant_about_quality;
+    my $itat = $G->is_tolerant_about_type;
 
     my $async = 1;
     $async = 0 unless $prefq && $preft;
@@ -1633,8 +1634,14 @@ sub get_q_and_t_dialog {
     my $c = $dialog->get_content_area;
     my $a = $dialog->get_action_area;
 
+    my $idx_ask_q = -1 + scalar list $G->qualities;
+    my $idx_ask_t = -1 + scalar list $G->types;
+
     my ($boxq, $combo_boxq) = make_list_choice($G->qualities, $T->pq1);
     my ($boxt, $combo_boxt) = make_list_choice($G->types, $T->pt1);
+
+    $combo_boxq->set_active($G->preferred_quality);
+    $combo_boxt->set_active($G->preferred_type);
 
     # return
     my $is_tolerant_about_quality = $G->is_tolerant_about_quality;
@@ -1645,20 +1652,40 @@ sub get_q_and_t_dialog {
 
     $fb_cb_q->set_active($G->is_tolerant_about_quality);
 
-    $fb_cb_q->signal_connect('toggled', sub {
+    sig $fb_cb_q, 'toggled', sub {
         my $i = ! $G->is_tolerant_about_quality;
         $G->is_tolerant_about_quality($i);
         $is_tolerant_about_quality = $i;
-    });
+    };
 
     my $fb_cb_t = Gtk2::CheckButton->new('');
     $fb_cb_t->set_active($is_tolerant_about_type);
 
-    $fb_cb_t->signal_connect('toggled', sub {
+    sig $fb_cb_t, 'toggled', sub {
         my $i = ! $G->is_tolerant_about_type;
         $G->is_tolerant_about_type($i);
         $is_tolerant_about_type = $i;
-    });
+    };
+
+    sig $combo_boxq, 'changed', sub {
+        if ($combo_boxq->get_active == $idx_ask_q) {
+            $fb_cb_q->set_active(1);
+            $fb_cb_q->set_sensitive(0);
+        }
+        else {
+            $fb_cb_q->set_sensitive(1);
+        }
+    };
+
+    sig $combo_boxt, 'changed', sub {
+        if ($combo_boxt->get_active == $idx_ask_t) {
+            $fb_cb_t->set_active(1);
+            $fb_cb_t->set_sensitive(0);
+        }
+        else {
+            $fb_cb_t->set_sensitive(1);
+        }
+    };
 
     my $vb = Gtk2::VBox->new(0);
     $vb->add($boxq);
@@ -1674,13 +1701,17 @@ sub get_q_and_t_dialog {
     my $ok = Gtk2::Button->new_from_stock('gtk-ok');
     my $cancel = Gtk2::Button->new_from_stock('gtk-cancel');
 
-    $ok->signal_connect('clicked', sub {
+    sig $ok, 'clicked', sub {
         $quality = $combo_boxq->get_active;
         $type = $combo_boxt->get_active;
         $G->preferred_quality($quality);
         $G->preferred_type($type);
         $dialog->destroy;
-    });
+    };
+
+    sig $cancel, 'clicked', sub {
+        $dialog->destroy;
+    };
 
     $a->add($_) for $ok, $cancel;
 
@@ -1752,4 +1783,11 @@ sub set_pref_labels {
     $W_lb->pq->set_label("$q $prefq", { size => 'small' });
     $W_lb->pt->set_label("$t $preft", { size => 'small' });
 }
+
+sub sig {
+    my ($w, $sig, $sub) = @_;
+    $w->signal_connect($sig, $sub);
+}
+
+
 1;
