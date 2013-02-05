@@ -11,15 +11,18 @@ use Thread::Queue;
 
 use Carp;
 
-
-#use Gtk2 qw/ -init -threads-init /;
-
 use Fish::Youtube::Get;
 use Fish::Youtube::Gtk;
 use Fish::Youtube::Utility;
 
+# number of workers == number of simultaenous downloads.
 my $NUM_THREADS = 4;
+
+my $active_threads :shared = 0;
+
+#XX
 my $Terminate :shared = 0;
+
 our $Queue_idle = Thread::Queue->new;
 
 # signals ...
@@ -30,7 +33,6 @@ my @TYPES = Fish::Youtube::Get->types;
 our %Queues_in;
 our %Queues_out;
 
-#our %Metadata_by_tid :shared;
 our %Metadata_by_did :shared;
 our %Status_by_did :shared;
 our %Cancel_by_did :shared;
@@ -70,15 +72,33 @@ sub thread {
     my ($qi, $qo) = @_;
 
     my $tid = threads->tid;
+
+    my $first = 1;
+
     while (1) {
         last if $Terminate;
 
-        $Queue_idle->enqueue($tid);
+        if ($first) { 
+            $first = 0;
+        }
+        else {
+            lock $active_threads;
+            $active_threads--;
+        }
 
-        # Go.
+        # Wait for opdracht.
+        
+        $Queue_idle->enqueue($tid);
 
         my $msg = $qi->dequeue;
         
+        # Go.
+        
+        {
+            lock $active_threads;
+            $active_threads++;
+        }
+
         # download id
         my $did = $msg->{did};
         defined $did or warn, _die($qo);
@@ -110,8 +130,6 @@ sub thread {
         # if prefq and preft are both known, then we are in async mode. 
         my $async = $msg->{async};
         defined $async or warn, _die($qo);
-
-        D 'threads: async is', $async;
 
         my %md :shared = (
             size => undef,
@@ -248,11 +266,15 @@ sub thread {
             $Status_by_did{$did}->{errstr} = $get->errstr;
         }
     }
-    D2 "cleanup -- $tid done.";
+    D "cleanup -- $tid done.";
 }
 
 
 sub queue_idle { $Queue_idle }
 sub queues_in { \%Queues_in }
 sub queues_out { \%Queues_out }
+
+sub max_threads { $NUM_THREADS }
+sub active_threads { $active_threads }
+
 1;

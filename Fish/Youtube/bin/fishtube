@@ -28,7 +28,8 @@ use threads;
 use threads::shared;
 
 # as early as possible to keep copies smaller
-use Fish::Youtube::DownloadThreads;
+# but stuff disappears after Gtk is inited ...
+#use Fish::Youtube::DownloadThreads;
 
 use Gtk2;
 
@@ -45,6 +46,10 @@ use Fish::Youtube::Utility;
 use Fish::Youtube::Gtk;
 use Fish::Youtube::History;
 use Fish::Youtube::Get;
+
+
+#XX
+use Fish::Youtube::DownloadThreads;
 
 sub error;
 sub war;
@@ -335,7 +340,6 @@ sub _start_download {
         # We don't care about anything any more, just let it go.
         # This signals caller to start watching.
         $response->{async} or warn, return;
-D "I'm returning tid", $tid;
         return $tid;
     }
     else {

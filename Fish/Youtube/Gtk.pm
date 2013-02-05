@@ -2,9 +2,6 @@ package Fish::Youtube::Gtk;
 
 # needs refactor -- too much crap in this module
 
-
-use Fish::Youtube::DownloadThreads;
-
 use 5.10.0;
 
 use strict;
@@ -29,6 +26,8 @@ use Math::Trig ':pi';
 
 use Fish::Gtk2::Label;
 my $L = 'Fish::Gtk2::Label';
+
+use Fish::Youtube::DownloadThreads;
 
 use Fish::Youtube::Utility;
 use Fish::Youtube::Download;
@@ -167,6 +166,8 @@ my $G = o(
     height => $HEIGHT,
     # calculated
     width => -1,
+
+    max_threads => Fish::Youtube::DownloadThreads->max_threads,
 
     auto_start_watching => 1,
 
@@ -612,12 +613,21 @@ sub start_download {
         return;
     }
 
+    {
+        my $max_threads = $G->max_threads;
+        my $active_threads = Fish::Youtube::DownloadThreads->active_threads;
+        D2 'max_threads', $max_threads, 'active_threads', $active_threads;
+
+        if ($max_threads == $active_threads) {
+            warn $_, mess $_ for "max ($max_threads) downloads reached (increase \$NUM_THREADS)";
+            return;
+        }
+    }
+    
     $G->download_successful->{$mid} = 0;
     $G->auto_launched->{$mid} = 0;
 
     my $box;
-
-    #my $tmp = main::make_tmp_dir();
 
     my $wait_s = "Trying to get '";
     $wait_s .= $t ? $t : 'manual download';
@@ -629,7 +639,6 @@ sub start_download {
     state $first = 1;
 
     my $manual;
-    #my $of;
 
     my $prefq = $G->qualities->[$G->preferred_quality];
     my $preft = $G->types->[$G->preferred_type];
@@ -638,27 +647,22 @@ sub start_download {
 
     $_ eq $T->ask and $_ = '' for $prefq, $preft;
 
-D 'prefq', $prefq, 'preft', $preft;
+    D2 'prefq', $prefq, 'preft', $preft;
+
     my $async = 1;
     $async = 0 unless $prefq && $preft;
 
     # manual download -- get name from youtube-get
+    # XX
+    # if any prompting, we can't know outfile. 
+    # also if async, we can't know it.
+    # always overwrite if async.
     if (! $t) {
         $manual = 1;
     } 
-    
-    else {
-        # if any prompting, we can't know outfile. 
-        # also if async, we can't know it.
-        # always overwrite.
-
-        if ($async) {
-            #main::sanitize_filename(\$t);
-        }
-    }
 
     # add puntjes to waiting msg
-    timeout(300, sub {
+    timeout 300, sub {
         my $text;
         return 0 unless $G->last_mid_in_statusbar == $mid;
         return 0 unless $text = $G->is_waiting->{$mid};
@@ -668,7 +672,7 @@ D 'prefq', $prefq, 'preft', $preft;
         $W_sb->main->push($mid, $text);
         $G->is_waiting->{$mid} = $text;
         1;
-    });
+    };
 
     $W_ly->right->show_all;
 
@@ -677,9 +681,6 @@ D 'prefq', $prefq, 'preft', $preft;
         $first = 0;
     }
 
-    # make some of these vars internal to main todo
-    #my ($pid, $err_file) = main::start_download($mid, $u, ($manual ? undef : $of), $tmp, $Output_dir, $force_get);
-    # we are still in an event callback
     # positive means no err so far and thread was launched.
     # undef means err
     # -1 means cancelled.
@@ -709,8 +710,8 @@ D 'prefq', $prefq, 'preft', $preft;
         return;
     }
     elsif ($tid == -1) {
-        #cancelled 
-        D 'cancelled.';
+        # cancelled 
+        D2 'cancelled.';
         return;
     }
 
@@ -735,7 +736,9 @@ D 'prefq', $prefq, 'preft', $preft;
             ++$i > 20 and war ("timeout waiting for async metadata"), return;
 
             if ($size = $md->{size}) {
-D 'got size', $size, 'did', $did;
+
+                D2 'got size', $size, 'did', $did;
+
                 my $of = $md->{of} or warn, return;
 
                 timeout 500, sub { 
@@ -761,7 +764,6 @@ D 'got size', $size, 'did', $did;
 
 sub watch_download {
     my ($did, $mid, $t, $status, $of, $size, $manual) = @_;
-    #D 'checking for tid', $tid;
 
     if ($status->{status} eq 'error') {
         war "Download thread reported error.";
@@ -896,7 +898,7 @@ sub add_download {
 
     my ($did, $mid, $title, $size, $of) = @_;
 
-D 'ad', 'did', $did;
+    D2 'ad', 'did', $did;
 
     # downloads added faster than poll_downloads can grab them (shouldn't
     # happen)
@@ -982,7 +984,6 @@ sub poll_downloads {
     $im->set_from_pixbuf($pix_normal);
 
     {
-        #my $eb_im = $W_eb->cancel_btn;
         my $eb_im = Gtk2::EventBox->new;
         $eb_im->modify_bg('normal', $Col->white);
         $eb_im->add($im);
@@ -1052,8 +1053,6 @@ sub poll_downloads {
         state $last = -1;
         $size // return 1;
 
-        #Gtk2::Gdk::Threads->enter;
-
         my $err;
 
         # get every time.
@@ -1062,16 +1061,12 @@ sub poll_downloads {
         my $p = $d->prog;
         if (not defined $p) {
             D2 "p not defined (yet)";
-            # try again
-            #Gtk2::Gdk::Threads->leave;
             return 1;
         }
 
         # shouldn't happen
         if (not $pixmap) {
             warn "pixmap not defined";
-            # don't try again
-            #Gtk2::Gdk::Threads->leave;
             return 0;
         }
 
@@ -1088,8 +1083,6 @@ sub poll_downloads {
             draw_surface_on_pixmap($pixmap, $surface);
         }
         $last = $p;
-
-        #Gtk2::Gdk::Threads->leave;
 
         if ($perc >= 100) {
             my $surface = $anarchy->draw(1, { last => 1});
@@ -1126,7 +1119,6 @@ sub configure_main {
     }
     else {
         return if $ew == $G->width and $eh == $G->height;
-        #D 'configuring', 'width', $ew, 'height', $eh;
     }
 
     $G->width($ew);
@@ -1344,7 +1336,6 @@ sub inject_movie {
     state $i = 0;
     # check url?
     $G->last_mid_inc;
-    #start_download($url, 'manual ' . ++$i, $Last_mid);
     start_download($url, undef, $G->last_mid);
 }
 
