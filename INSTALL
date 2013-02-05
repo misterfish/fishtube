@@ -61,7 +61,11 @@ MANUAL COMPILE / INSTALL, per-user (no sudo)
     perl Makefile.PL
     make install
 
+
+
+
 TO RUN:
+-------
 
   Fish/Youtube/bin/fishtube
 
@@ -82,7 +86,7 @@ List of deps:
     Term::ANSIColor
     Time::HiRes
 
-perl module / debian package
+perl module / Debian package
 
     DBI				libdbi-perl
     File::Slurp			libfile-slurp-perl
@@ -92,7 +96,7 @@ perl module / debian package
     Proc::ProcessTable		libproc-processtable-perl
     Proc::SyncExec		libproc-syncexec-perl
     
-perl modules without debian packages
+perl modules without Debian packages
     
     URI::Escape
     HTML::Entities
