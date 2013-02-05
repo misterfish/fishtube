@@ -232,7 +232,10 @@ sub make_tmp_dir {
 sub start_download_sync {
 
     my $did = shift // die;
+
+    # used?
     my $mid = shift // die;
+
     my $url = shift or die;
     my $output_dir = shift or die;
 
@@ -241,48 +244,68 @@ sub start_download_sync {
     my $preft = shift // die;
 
     # is_tolerant
+    # is always 1 if the corresponding pref is ''.
     my $itaq = shift // die;
     my $itat = shift // die;
+    $itaq = 1 unless $prefq;
+    $itat = 1 unless $preft;
 
     my $msg = {
+        output_dir => $output_dir,
+
         did => $did,
         url => $url,
-        output_dir => $output_dir,
         prefq => $prefq,
         preft => $preft,
-        itaq => 1,
-        itat => 1,
+        itaq => $itaq,
+        itat => $itat,
+
+        async => 0,
     };
 
-    return _start_download($did, $msg, 0);
+    return _start_download($did, $msg);
 }
 
 sub start_download_async {
     my $did = shift // die;
+
+    #used ?
     my $mid = shift // die;
+
     my $url = shift or die;
-    my $output_file = shift or die;
+
+    #my $output_file = shift or die;
     my $prefq = shift // die;
     my $preft = shift // die;
     # is_tolerant
     my $itaq = shift // die;
     my $itat = shift // die;
 
+    D2 'starting async.';
+
     my $msg = {
+        # wrong, we don't know it yet.
+        #of => $output_file,
+
         did => $did,
-        url => "http://www.youtube.com/watch?v=QARALafdWUI",
-        of => $output_file,
+        url => $url,
+        prefq => $prefq,
+        preft => $preft,
+        itaq => $itaq,
+        itat => $itat,
+
+        async => 1,
     };
 
-    return _start_download($did, $msg, 0);
+    return _start_download($did, $msg);
 }
 
 sub _start_download {
 
-    my ($did, $msg, $async) = @_;
+    my ($did, $msg) = @_;
 
     my $tmp_dir = main::make_tmp_dir();
-    #$msg->{error_file} = $tmp_dir . "/yt-err";
+
     $msg->{tmp} = $tmp_dir;
 
     my $t = 'Fish::Youtube::DownloadThreads';
@@ -300,15 +323,19 @@ sub _start_download {
     $qo->enqueue($msg);
 
     # recv: 
-    # {error => 1} or available quals.
+    # {error => 1} 
+    # sync: available quals.
+    # async: { async => 1 }
     $response = $qi->dequeue or warn, return;
 
     my $e;
-    $e = $response->{error} and warn ($e), return;
+    $e = $response->{error} and warn ($response->{errstr} // ''), return;
 
-    if ($async) {
+    if ($msg->{async}) {
         # We don't care about anything any more, just let it go.
         # This signals caller to start watching.
+        $response->{async} or warn, return;
+D "I'm returning tid", $tid;
         return $tid;
     }
     else {

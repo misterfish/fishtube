@@ -9,6 +9,9 @@ use threads;
 use threads::shared;
 use Thread::Queue;
 
+use Carp;
+
+
 #use Gtk2 qw/ -init -threads-init /;
 
 use Fish::Youtube::Get;
@@ -45,6 +48,24 @@ for (1 .. $NUM_THREADS) {
     $Queues_out{$tid} = $qo;
 }
 
+sub _die {
+    my ($q, @s) = @_;
+    my %m = (
+        error => 1,
+    );
+    $m{errstr} = join ' ', @s if @s;
+    warn 'blach';
+    # segfaults!
+    #Carp::cluck();
+
+    eval { 
+        Carp::confess();
+    };
+
+    warn $@;
+    $q->enqueue(\%m);
+}
+
 sub thread {
     my ($qi, $qo) = @_;
 
@@ -54,28 +75,43 @@ sub thread {
 
         $Queue_idle->enqueue($tid);
 
+        # Go.
+
         my $msg = $qi->dequeue;
         
-        my $err;
-
-        # these dies cause segfaults apparently.
-       
         # download id
-        my $did = $msg->{did} // die;
-
-        my $url = $msg->{url} // die;
-
-        my $prefq = $msg->{prefq} // die;
-        my $preft = $msg->{preft} // die;
-
-        # is_tolerant
-        my $itaq = $msg->{itaq} // die;
-        my $itat = $msg->{itat} // die;
+        my $did = $msg->{did};
+        defined $did or warn, _die($qo);
 
         {
             my %s :shared = ( status => 'init' );
             $Status_by_did{$did} = \%s;
         }
+
+        my $err;
+
+        # Can't use 'die', causes segfaults (probably because queue is still
+        # hanging on the other side).
+       
+        my $url = $msg->{url} or warn, _die($qo);
+
+        # as text, not id
+        my $prefq = $msg->{prefq};
+        defined $prefq or warn, _die($qo);
+        my $preft = $msg->{preft};
+        defined $preft or warn, _die($qo);
+
+        # is_tolerant
+        my $itaq = $msg->{itaq};
+        defined $itaq or warn, _die($qo);
+        my $itat = $msg->{itat};
+        defined $itat or warn, _die($qo);
+
+        # if prefq and preft are both known, then we are in async mode. 
+        my $async = $msg->{async};
+        defined $async or warn, _die($qo);
+
+        D 'threads: async is', $async;
 
         my %md :shared = (
             size => undef,
@@ -84,14 +120,10 @@ sub thread {
 
         $Metadata_by_did{$did} = \%md;
 
-        my $async = 1;
-        $async = 0 unless $preft and $prefq;
-
         my @p;
         if (! $async) {
-            # can be undef
-            my $output_dir = $msg->{output_dir} // die;
-            @p = ( 
+            my $output_dir = $msg->{output_dir} or warn, _die($qo);
+            @p = (
                 dir => $output_dir,
                 no_init_params => 1,
             );
@@ -120,6 +152,8 @@ sub thread {
         if ($get->error) {
             $qo->enqueue({error => 'error building get object'});
 
+            D "couldn't build the object";
+
             $Status_by_did{$did}->{status} = 'error';
             $Status_by_did{$did}->{errstr} = $get->errstr;
 
@@ -132,6 +166,14 @@ sub thread {
 
         my $set_ok;
         if ($async) {
+            # caller stops listening to us after this.
+            # get object figures out what it needs to do, ->set not
+            # necessary.
+            $qo->enqueue({ async => 1});
+
+            # if he hasn't signalled ->error (above), then he was able to
+            # find a qual and type.
+            $set_ok = 1;
         }
         else {
 
@@ -177,23 +219,29 @@ sub thread {
         $md{size} = $size;
         $md{of} = $of;
 
-        $qo->enqueue( $set_ok ? { got_metadata => 1 } : { error => 1 } );
+        # if async, not possible (or annoyingly hard) to check if output
+        # file exists. so just overwrite. (->force is set above).
 
-        my $response3 = $qi->dequeue or warn, next;
+        if (!$async) {
+            $qo->enqueue( $set_ok ? { got_metadata => 1 } : { error => 1 } );
 
-        next if $response3->{cancel};
+            my $response3 = $qi->dequeue or warn, next;
 
-        $response3->{go} or warn, next;
+            next if $response3->{cancel};
+
+            $response3->{go} or warn, next;
+        }
 
         $Status_by_did{$did}->{status} = $set_ok ? 'getting' : 'error';
 
         # No more queueing. Communicate through md and status.
 
-        # give chance to cancel here  XX
-
         my $ok = $get->get(\$Cancel_by_did{$did});
 
-        if ($ok) {
+        if ($Cancel_by_did{$did}) {
+            $Status_by_did{$did}->{status} = 'cancelled';
+        }
+        elsif ($ok) {
             $Status_by_did{$did}->{status} = 'done';
         } else {
             $Status_by_did{$did}->{status} = 'error';

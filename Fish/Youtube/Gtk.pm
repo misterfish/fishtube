@@ -94,6 +94,7 @@ my $T = o(
     pt2  => "Preferred format:",
     pt3  => "Required format:",
     fb  => "Allow fallback",
+    ask => "(ask)",
 );
 
 my $INFO_X = $WP + $RIGHT_SPACING_H_1 + $RIGHT_SPACING_H_2;
@@ -203,8 +204,8 @@ my $G = o(
     # mp4
     preferred_type => 0,
 
-    qualities => [ Fish::Youtube::Get->qualities, '(ask)' ],
-    types => [ Fish::Youtube::Get->types, '(ask)' ],
+    qualities => [ Fish::Youtube::Get->qualities, $T->ask ],
+    types => [ Fish::Youtube::Get->types, $T->ask ],
 
     is_tolerant_about_quality => 1,
     is_tolerant_about_type => 1,
@@ -628,13 +629,16 @@ sub start_download {
     state $first = 1;
 
     my $manual;
-    my $of;
+    #my $of;
 
-    my $prefq = $G->preferred_quality;
-    my $preft = $G->preferred_type;
+    my $prefq = $G->qualities->[$G->preferred_quality];
+    my $preft = $G->types->[$G->preferred_type];
     my $itaq = $G->is_tolerant_about_quality;
     my $itat = $G->is_tolerant_about_type;
 
+    $_ eq $T->ask and $_ = '' for $prefq, $preft;
+
+D 'prefq', $prefq, 'preft', $preft;
     my $async = 1;
     $async = 0 unless $prefq && $preft;
 
@@ -645,16 +649,11 @@ sub start_download {
     
     else {
         # if any prompting, we can't know outfile. 
-        # otherwise, set it here, to allow async
+        # also if async, we can't know it.
+        # always overwrite.
 
         if ($async) {
-            $of = "$Output_dir/$t.EXT";
-
-            main::sanitize_filename(\$of);
-
-            if (-r $of) {
-                return unless replace_file_dialog($of);
-            }
+            #main::sanitize_filename(\$t);
         }
     }
 
@@ -687,7 +686,8 @@ sub start_download {
     my $tid;
 
     if ($async) {
-        $tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
+        #$tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
+        $tid = main::start_download_async($did, $mid, $u, $prefq, $preft, $itaq, $itat);
     }
     else {
         $tid = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
@@ -726,47 +726,73 @@ sub start_download {
         warn $e if $e = $status->{errstr};
     }
 
-    my $size = $md->{size} or warn, return;
-    $md->{of} or warn, return;
+    my $size;
 
-    timeout 500, sub {
-        #D 'checking for tid', $tid;
+    if ($async) {
+        # wait for md to get filled.
+        my $i = 0;
+        timeout 200, sub {
+            ++$i > 20 and war ("timeout waiting for async metadata"), return;
 
-        if ($status->{status} eq 'error') {
-            war "Download thread reported error.";
-            my $e;
-            warn $e if $e = $status->{errstr};
-            movie_panic_while_waiting($mid, $e);
-            return 0;
-        }
+            if ($size = $md->{size}) {
+D 'got size', $size, 'did', $did;
+                my $of = $md->{of} or warn, return;
 
-        # name is only needed if we didn't specify $of
-        $of //= $md->{of};
+                timeout 500, sub { 
+                    watch_download($did, $mid, $t, $status, $of, $size, $manual) 
+                };
 
-        D2 'got md', 'name', $of, 'size', $size;
+                return 0;
+            }
 
-        # got it, add download and kill timeout
-
-        if ($manual) {
-            $t = basename $of;
-            $t =~ s/\.\w+$//;
-        }
-
-        add_download($did, $mid, $t, $size, $of);
-
-        my $cur_size = -1;
-
-        timeout 200, sub { 
-            return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $status);
+            1;
         };
-        
-        timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
+    }
+    else {
+        my $size = $md->{size} or warn, return;
+        my $of = $md->{of} or warn, return;
 
-        D2 'gtk: download started, outer timeout over';
-
-        return 0;
+        timeout 500, sub { 
+            watch_download($did, $mid, $t, $status, $of, $size, $manual) 
+        };
     }
     # / child wait
+}
+
+sub watch_download {
+    my ($did, $mid, $t, $status, $of, $size, $manual) = @_;
+    #D 'checking for tid', $tid;
+
+    if ($status->{status} eq 'error') {
+        war "Download thread reported error.";
+        my $e;
+        warn $e if $e = $status->{errstr};
+        movie_panic_while_waiting($mid, $e);
+        return 0;
+    }
+
+    D2 'got md', 'name', $of, 'size', $size;
+
+    # got it, add download and kill timeout
+
+    if ($manual) {
+        $t = basename $of;
+        $t =~ s/\.\w+$//;
+    }
+
+    add_download($did, $mid, $t, $size, $of);
+
+    my $cur_size = -1;
+
+    timeout 200, sub { 
+        return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $status);
+    };
+    
+    timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
+
+    D2 'gtk: download started, outer timeout over';
+
+    return 0;
 }
 
 sub auto_start_watching {
@@ -836,6 +862,7 @@ sub file_progress {
         warn unless $$cur_size_r == $size;
     }
     elsif ($status->{status} eq 'cancelled') {
+        D2 'cancelled!';
         $delete = 1;
     }
 
@@ -868,6 +895,8 @@ sub file_progress {
 sub add_download {
 
     my ($did, $mid, $title, $size, $of) = @_;
+
+D 'ad', 'did', $did;
 
     # downloads added faster than poll_downloads can grab them (shouldn't
     # happen)

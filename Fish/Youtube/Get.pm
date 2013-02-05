@@ -240,6 +240,7 @@ sub BUILD {
     $self->avail_by_quality(\%abq);
     $self->avail_by_type(\%abt);
 
+    # no init params is used in prompt mode.
     if (! $self->no_init_params ) {
         $self->_set_params;
         $self->set($self->quality, $self->type);
