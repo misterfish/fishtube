@@ -124,10 +124,11 @@ sub update {
 
     for (@$r) {
         my ($url, $date, $title) = @$_;
-        next if $url =~ m|youtube.com/?$|;
-        next if $url =~ m|youtu.be/?$|;
-        next if $url =~ m|youtube.com/results/?|;
-        next if $url =~ m|youtu.be/results/?|;
+        my ($u) = ($url =~ m| http:// (.+?) /? |x);
+        next if $u =~ m|youtube.com/?$|;
+        next if $u =~ m|youtu.be/?$|;
+        next if $u =~ m|youtube.com/results/?|;
+        next if $u =~ m|youtu.be/results/?|;
         $title or next;
         push @d, new_movie($url, $date, $title);
     }
