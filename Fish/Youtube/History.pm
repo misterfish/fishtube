@@ -128,7 +128,7 @@ sub update {
         my ($u, $i) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
         #D2 'u', $u, 'i', $i;
         next unless $i;
-        next if $i =~ /^results/;
+        next if $i =~ m|^/results|;
         push @d, new_movie($url, $date, $title);
     }
 
