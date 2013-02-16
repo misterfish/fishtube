@@ -272,9 +272,7 @@ sub init {
 
     my $l = Gtk2::VBox->new;
     
-    my $l_buttons = Gtk2::HBox->new;
-
-    $l->pack_start($l_buttons, 0, 0, 10);
+    my $l_buttons = Gtk2::VBox->new;
 
     my $lwf = Gtk2::Frame->new;
     $lwf->add($W_sw->left);
@@ -288,6 +286,7 @@ sub init {
         my $response = inject_movie();
     });
 
+    $button_add->modify_bg('normal', $Col->white);
     set_cursor_timeout($button_add, 'hand2');
 
     $l_buttons->pack_start($button_add, 0, 0, 10);
@@ -342,9 +341,13 @@ sub init {
 
     $W_lb->od->modify_bg('normal', $Col->black);
 
-    # expand, fill, padding
-    # fill has no effect if expand is 0.
-    $outer_box->pack_start($W_hp->main, 1, 1, 0);
+    {
+        my $f = Gtk2::Frame->new;
+        # expand, fill, padding
+        # fill has no effect if expand is 0.
+        $outer_box->pack_start($f, 1, 1, 0);
+        $f->add($W_hp->main);
+    }
 
     $W_lb->od->set_label($T->output_dir, { size => 'small', color => 'red'});
 
@@ -395,20 +398,42 @@ sub init {
         $outer_box->add($b);
     }
 
-    $W->add($outer_box);
+    {
+        my $fb = Gtk2::VBox->new;
+        my $f = Gtk2::Frame->new;
+        $W->add($fb);
+        $fb->pack_start($f, 1, 1, 0);
+        $f->add($outer_box);
+    }
 
     $W_sw->right->set_policy('never', 'automatic');
 
     $W_hp->main->child2_shrink(1);
 
-    $W_hp->main->pack1($l, 0, 1);
+    {
+
+        my $hb = Gtk2::HBox->new(0);
+        $hb->pack_start($l_buttons, 0, 0, 4);
+        $hb->pack_start($l, 1, 1, 4);
+        $W_hp->main->pack1($hb, 0, 1);
+    }
+
+    #$W_hp->main->pack1($l, 0, 1);
 
     $W_ly->right->signal_connect('expose_event', \&expose_drawable );
     $W_ly->right->modify_bg('normal', $Col->white);
 
     $W_sw->right->add($W_ly->right);
 
-    $W_hp->main->pack2($W_sw->right, 0, 1);
+    {
+        my $f = Gtk2::Frame->new;
+        my $b = Gtk2::VBox->new;
+        # resize, shrink
+        $W_hp->main->pack2($b, 0, 1);
+        #$b->pack_start($f, 1, 1, 4);
+        #$f->add($W_sw->right);
+        $b->pack_start($W_sw->right, 1, 1, 0);
+    }
 
     $W->show_all;
 
