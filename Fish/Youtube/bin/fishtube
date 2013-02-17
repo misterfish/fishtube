@@ -31,7 +31,8 @@ use threads::shared;
 # but stuff disappears after Gtk is inited ...
 #use Fish::Youtube::DownloadThreads;
 
-use Gtk2;
+#use Gtk2;
+use Gtk2 qw/ -init -threads-init /;
 
 use Time::HiRes 'sleep';
 
@@ -53,6 +54,7 @@ use Fish::Youtube::DownloadThreads;
 
 sub error;
 sub war;
+sub DT;
 
 #%
 
@@ -71,7 +73,10 @@ my $MOVIE_PLAYER = 'mplayer';
 my $MOVIE_PLAYER_OPTS = '-af scaletempo -zoom';
 
 our ($opt_h, $opt_p, $opt_d, $opt_o);
-getopts('hp:do:');
+our $opt_Z;
+getopts('hp:do:Z');
+
+$Fish::Youtube::DownloadThreads::Debug_threads = $opt_Z;
 
 $opt_d and $Fish::Youtube::Utility::LOG_LEVEL++;
 
@@ -81,7 +86,11 @@ my $USAGE = "Usage: $0 [-p firefox-profile] [-d to debug] [-o output_dir]";
 
 $opt_h and error $USAGE;
 
-                state $III = 0;
+## gtk erases vars in threads sometimes
+#eval {
+#sub Debug_threads { $Debug_threads }
+#};
+
 my $Profile_dir;
 my $Output_dir;
 
@@ -279,7 +288,8 @@ sub start_download_async {
 
     my $url = shift or die;
 
-    #my $output_file = shift or die;
+    my $output_dir = shift or die;
+
     my $prefq = shift // die;
     my $preft = shift // die;
     # is_tolerant
@@ -291,6 +301,8 @@ sub start_download_async {
     my $msg = {
         # wrong, we don't know it yet.
         #of => $output_file,
+
+        output_dir => $output_dir,
 
         did => $did,
         url => $url,
@@ -331,10 +343,9 @@ sub _start_download {
     # {error => 1} 
     # sync: available quals.
     # async: { async => 1 }
-    $response = $qi->dequeue or warn, return;
+    DT 'waiting for metadata response.';
 
-    my $e;
-    $e = $response->{error} and warn ($response->{errstr} // ''), return;
+    $response = $qi->dequeue or warn, return;
 
     if ($msg->{async}) {
         # We don't care about anything any more, just let it go.
@@ -343,6 +354,11 @@ sub _start_download {
         return $tid;
     }
     else {
+
+        # note that errstr has to found out another way if async.
+        my $e;
+        $e = $response->{error} and warn ($response->{errstr} // ''), return;
+
 
         my @quals = list $response->{quals};
 
@@ -463,6 +479,9 @@ sub sanitize_filename {
     $$tr =~ s/"/'/g;
 }
 
+sub DT {
+    $Fish::Youtube::DownloadThreads::Debug_threads and say "main: ", D_QUIET @_;
+}
 END {
     # die is ok in end
     for my $d (@Tmp_dirs) {
@@ -476,3 +495,4 @@ END {
         sys qq, rm -rf "$d" ,;
     }
 }
+

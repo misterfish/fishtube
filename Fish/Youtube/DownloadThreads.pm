@@ -37,6 +37,11 @@ our %Metadata_by_did :shared;
 our %Status_by_did :shared;
 our %Cancel_by_did :shared;
 
+our $Debug_threads :shared;
+
+sub D_;
+
+my $D = $main::Debug_threads;
 # D2 doesn't work (log_level set in wrong 'copy')
 
 for (1 .. $NUM_THREADS) {
@@ -82,19 +87,26 @@ sub thread {
             $first = 0;
         }
         else {
+            D_ 'locking active_threads';
             lock $active_threads;
             $active_threads--;
         }
 
         # Wait for opdracht.
+
+        # won't print while initting.
+        D_ 'waiting for opdracht.';
         
         $Queue_idle->enqueue($tid);
 
         my $msg = $qi->dequeue;
         
+        D_ 'got opdracht';
+
         # Go.
         
         {
+            D_ 'locking active_threads';
             lock $active_threads;
             $active_threads++;
         }
@@ -127,6 +139,9 @@ sub thread {
         my $itat = $msg->{itat};
         defined $itat or warn, _die($qo);
 
+        my $tmp = $msg->{tmp} or warn, _die($qo);
+        my $output_dir = $msg->{output_dir} or warn, _die($qo);
+
         # if prefq and preft are both known, then we are in async mode. 
         my $async = $msg->{async};
         defined $async or warn, _die($qo);
@@ -140,9 +155,9 @@ sub thread {
 
         my @p;
         if (! $async) {
-            my $output_dir = $msg->{output_dir} or warn, _die($qo);
+            #my $output_dir = $msg->{output_dir} or warn, _die($qo);
             @p = (
-                dir => $output_dir,
+                #dir => $output_dir,
                 no_init_params => 1,
             );
         }
@@ -156,21 +171,33 @@ sub thread {
         };
 
         my @init = (
-            dir => '/tmp',
+            dir => $output_dir,
             url => $url,
+
+            tmp => $tmp,
 
             # gui should take care of prompting for overwrite
             force => 1,
 
+            debug => $Debug_threads,
+
             @p,
         );
 
+        D_ 'initing getter';
+
+        if ($async) {
+            $qo->enqueue({ async => 1});
+        }
+
         my $get = Fish::Youtube::Get->new(@init);
 
+        #asnc?
         if ($get->error) {
-            $qo->enqueue({error => 'error building get object'});
 
             D "couldn't build the object";
+
+            $qo->enqueue({error => 'error building get object'});
 
             $Status_by_did{$did}->{status} = 'error';
             $Status_by_did{$did}->{errstr} = $get->errstr;
@@ -187,7 +214,7 @@ sub thread {
             # caller stops listening to us after this.
             # get object figures out what it needs to do, ->set not
             # necessary.
-            $qo->enqueue({ async => 1});
+            #$qo->enqueue({ async => 1});
 
             # if he hasn't signalled ->error (above), then he was able to
             # find a qual and type.
@@ -269,6 +296,9 @@ sub thread {
     D "cleanup -- $tid done.";
 }
 
+sub D_ {
+    $Debug_threads and D @_;
+}
 
 sub queue_idle { $Queue_idle }
 sub queues_in { \%Queues_in }

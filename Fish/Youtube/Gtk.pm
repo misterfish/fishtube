@@ -57,6 +57,8 @@ my $IMAGES_DIR = $main::bin_dir . '/../images';
 -d $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "doesn't exist.";
 -r $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "not readable";
 
+my $TIMEOUT_METADATA = 5000;
+
 my %IMG = (
     add                 => 'add-12.png',
     cancel              => 'cancel-20.png',
@@ -720,7 +722,7 @@ sub start_download {
 
     if ($async) {
         #$tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
-        $tid = main::start_download_async($did, $mid, $u, $prefq, $preft, $itaq, $itat);
+        $tid = main::start_download_async($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat);
     }
     else {
         $tid = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
@@ -766,8 +768,15 @@ sub start_download {
     if ($async) {
         # wait for md to get filled.
         my $i = 0;
-        timeout 200, sub {
-            ++$i > 20 and war ("timeout waiting for async metadata"), return;
+        my $to = 200;
+        timeout $to, sub {
+            if ( ++$i > $TIMEOUT_METADATA / $to ) {
+                my $w = "Timeout waiting for async metadata"; 
+                D $w;
+                #err $w;
+                movie_panic_while_waiting($mid, $w);
+                return;
+            }
 
             if ($size = $md->{size}) {
 
@@ -1435,8 +1444,6 @@ sub inject_movie_dialog {
 
 sub remove_wait_label {
     my ($mid) = @_;
-    # my $wait_l = delete $wait_l{$mid} or warn;
-    #$wait_l->{l}->destroy;
     $G->is_waiting->{$mid} = 0;
     $W_sb->main->pop($mid);
 }

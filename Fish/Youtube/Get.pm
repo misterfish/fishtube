@@ -213,8 +213,16 @@ sub BUILD {
 
     # can be partial content ... apparently still timing out sometimes?
 
+    # can take some time
+    $self->d2('getting metadata.');
+
+# Test error
+#$self->war('blah!'); while (1) { sleep 1;
+
     my $c = $res->decoded_content;
+
     $self->_c($c);
+    $self->d2('got metadata.');
 
     my $data = $self->extract_urls(\$c);
     if (!$data) {
