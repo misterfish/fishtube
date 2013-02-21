@@ -128,6 +128,11 @@ sub update {
         my ($u, $i) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
         #D2 'u', $u, 'i', $i;
         next unless $i;
+        {
+            my @s = split /\./, $u;
+            next if @s == 3 and $s[0] ne 'www';
+        }
+        next if $u and $u ne 'www.youtube.com';
         next if $i =~ m|^/results|;
         push @d, new_movie($url, $date, $title);
     }
