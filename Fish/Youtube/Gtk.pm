@@ -52,6 +52,8 @@ sub war;
 sub mess;
 sub max;
 
+my $HIDING;
+
 my $IMAGES_DIR = $main::bin_dir . '/../images';
 
 -d $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "doesn't exist.";
@@ -61,8 +63,10 @@ my $TIMEOUT_METADATA = 5000;
 
 my %IMG = (
     add                 => 'add-12.png',
-    cancel              => 'cancel-20.png',
-    cancel_hover        => 'cancel-20-hover.png',
+    cancel              => 'cancel-17.png',
+    cancel_hover        => 'cancel-17-hover.png',
+    delete              => 'trash-14.png',
+    delete_hover        => 'trash-14-hover.png',
 );
 
 my $HEIGHT = 300;
@@ -191,7 +195,14 @@ my $G = o(
     size_label => {},
 
     info_box => {},
-    cancel_images => {},
+
+    # by mid, cancel and delete buttons
+    controls => {},
+
+    # to avoid infinite loops of enter/exit events
+    controls_lock_show => {},
+    controls_lock_hide => {},
+
     auto_launched => {},
     download_successful => {},
 
@@ -231,7 +242,7 @@ my $Col = o(
 
         $_ => $i,
 
-    } qw/ add cancel cancel_hover /;
+    } keys %IMG;
 
     $G->img(\%img);
 }
@@ -893,7 +904,8 @@ sub file_progress {
     my $done;
     my $delete;
 
-    $$cur_size_r = $s->size;
+    my $cs = $s->size;
+    $$cur_size_r = $cs unless $cs == -1;
 
     if ($status->{status} eq 'error') {
         my $e;
@@ -921,7 +933,7 @@ sub file_progress {
 
     if ($delete) {
         #redraw();
-        erase_download_entry($mid);
+        #remove_download_entry($mid);
         return 0;
     }
     elsif ($done) {
@@ -998,7 +1010,6 @@ sub poll_downloads {
         height => $HP,
     );
 
-    my $hb = Gtk2::HBox->new;
     my $vb = Gtk2::VBox->new;
 
     my $c1 = $Col->black;
@@ -1020,43 +1031,57 @@ sub poll_downloads {
     my $l4 = $L->new(nice_bytes_join $size, { size => 'small' });
     $l4->modify_fg('normal', $c4);
 
-    my $im = Gtk2::Image->new;
+    my $eb_im_cancel = get_image_button('cancel', 'cancel_hover'); 
+    my $eb_im_delete = get_image_button('delete', 'delete_hover'); 
 
-    my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($G->img('cancel'));
-    my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($G->img('cancel_hover'));
-    $im->set_from_pixbuf($pix_normal);
+    $eb_im_cancel->signal_connect('button-press-event', sub {
+        cancel_download($mid);
+        remove_download_entry($mid);
+        # 1 means don't propagate (we are inside $eb)
+        return 1;
+    });
+
+    $eb_im_delete->signal_connect('button-press-event', sub {
+        cancel_download($mid);
+        remove_download_entry($mid);
+
+        # and delete XX
+
+        # 1 means don't propagate (we are inside $eb)
+        return 1;
+    });
 
     {
-        my $eb_im = Gtk2::EventBox->new;
-        $eb_im->modify_bg('normal', $Col->white);
-        $eb_im->add($im);
+        my $hb = Gtk2::HBox->new;
+        $hb->add($eb_im_cancel);
+        $hb->add($eb_im_delete);
 
-        $eb_im->signal_connect('enter-notify-event', sub {
-            $im->set_from_pixbuf($pix_hover);
-        });
-
-        $eb_im->signal_connect('leave-notify-event', sub {
-            $im->set_from_pixbuf($pix_normal);
-        });
-
-        $eb_im->signal_connect('button-press-event', sub {
-            cancel_download($mid);
-            # 1 means don't propagate (we are inside $eb)
-            return 1;
-        });
-
-        $vb->add($l1);
-        $hb->add($l2);
-        $hb->add($l3);
-        $hb->add($l4);
-
-        my $hb_al = Gtk2::Alignment->new(0,0,0,0);
-        $hb_al->add($hb);
-        $vb->add($hb_al);
-        $hb->pack_start($eb_im, 0, 0, 20);
+        $G->controls->{$mid} = $hb;
     }
 
-    $_->modify_bg('normal', $Col->white) for $vb, $hb;
+    # title
+    $vb->add($l1);
+
+    {
+        # bottom, doesn't work
+        my $al = Gtk2::Alignment->new(0, 1, 0, 0);
+        my $hb = Gtk2::HBox->new;
+
+        # cur 
+        $hb->add($l2);
+        # / 
+        $hb->add($l3);
+        # total
+        $hb->add($l4);
+
+        $al->add($hb);
+   
+        $vb->add($al);
+        $hb->pack_start($G->controls->{$mid}, 0, 0, 20);
+        $hb->modify_bg('normal', $Col->white);
+    }
+
+    $vb->modify_bg('normal', $Col->white);
 
     {
         #my $eb = $W_eb->info;
@@ -1077,9 +1102,42 @@ sub poll_downloads {
     update_scroll_area(+1);
     $W_ly->right->show_all;
 
-    set_cursor_timeout($G->info_box->{$mid}, 'hand2');
+    # look into GSignalFlags and :after ??
+    {
+        my $i = $G->info_box->{$mid};
+        set_cursor_timeout($i, 'hand2');
+        sig $i, 'enter-notify-event', sub {
+D 'entered';
+D 'returning' if $G->controls_lock_show->{$mid};
+            return 0 if $G->controls_lock_show->{$mid};
+            my $c = $G->controls->{$mid} or warn, return;
 
-    $G->cancel_images->{$mid} = $im;
+            $G->controls_lock_hide->{$mid} = 1;
+
+            $c->show;
+        };
+
+last;
+        sig $i, 'leave-notify-event', sub {
+D 'left';
+D 'returning' if $G->controls_lock_hide->{$mid};
+            return 0 if $G->controls_lock_hide->{$mid};
+            my $c = $G->controls->{$mid} or warn, return;
+
+            $G->controls_lock_show->{$mid} = 1;
+
+            $c->hide;
+        };
+
+        sig $G->controls->{$mid}, 'hide', sub {
+D 'resetting hide';
+            $G->controls_lock_hide->{$mid} = 0
+        };
+        sig $G->controls->{$mid}, 'show', sub {
+D 'resetting show';
+            $G->controls_lock_show->{$mid} = 0
+        };
+    }
 
     # check size, update download status, update pixmap
     timeout(50, sub {
@@ -1263,7 +1321,8 @@ sub download_stopped {
 sub download_finished {
     my ($mid) = @_;
     download_stopped($mid);
-    $_->destroy, undef $_ for $G->cancel_images->{$mid}, list $G->size_label->{$mid};
+    $_->hide for $G->controls->{$mid}, list $G->size_label->{$mid};
+    #$_->destroy, undef $_ for $G->controls->{$mid}, list $G->size_label->{$mid};
     $G->download_successful->{$mid} = 1;
 }
 
@@ -1286,7 +1345,7 @@ sub cancel_download {
 
 }
 
-sub erase_download_entry {
+sub remove_download_entry {
     my ($mid) = @_;
 
     my $d = $D->get($mid) or warn, return;
@@ -1854,5 +1913,31 @@ sub normal_cursor {
     my ($w) = shift;
     set_cursor $w, 'left-ptr';
 }
+
+
+sub get_image_button {
+    my ($which, $which_hover) = @_;
+
+    my $im = Gtk2::Image->new;
+
+    my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($G->img($which));
+    my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($G->img($which_hover));
+    $im->set_from_pixbuf($pix_normal);
+
+    my $eb = Gtk2::EventBox->new;
+    $eb->modify_bg('normal', $Col->white);
+    $eb->add($im);
+
+    $eb->signal_connect('enter-notify-event', sub {
+        $im->set_from_pixbuf($pix_hover);
+    });
+
+    $eb->signal_connect('leave-notify-event', sub {
+        $im->set_from_pixbuf($pix_normal);
+    });
+
+    return $eb;
+}
+
 
 1;
