@@ -84,7 +84,7 @@ has is_downloading  => (
 has prog => (
     is  => 'rw',
     isa => 'Num',
-    default => -1,
+    #default => -1,
 );
 
 sub BUILD {

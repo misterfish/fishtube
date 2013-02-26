@@ -1,7 +1,5 @@
 package Fish::Youtube::Gtk;
 
-# needs refactor -- too much crap in this module
-
 use 5.10.0;
 
 use strict;
@@ -67,6 +65,7 @@ my %IMG = (
     cancel_hover        => 'cancel-17-hover.png',
     delete              => 'trash-14.png',
     delete_hover        => 'trash-14-hover.png',
+    blank               => 'blank-17.png',
 );
 
 my $HEIGHT = 300;
@@ -199,9 +198,16 @@ my $G = o(
     # by mid, cancel and delete buttons
     controls => {},
 
-    # to avoid infinite loops of enter/exit events
-    controls_lock_show => {},
-    controls_lock_hide => {},
+    # to avoid infinite loops of enter/exit events when there's an inner
+    # box inside an outer box. this is because an enter/exit on the inner
+    # box triggers an exit/enter on the outer box. 
+    #controls_lock_leave => {},
+    #controls_lock_enter => {},
+
+    # also temporarily block all events after one event has fired. this is
+    # so that entering the inner box doesn't trigger a leave on the outer
+    # box which immediately turns off the inner box again.
+    #controls_lock_all_with_timeout => {},
 
     auto_launched => {},
     download_successful => {},
@@ -356,8 +362,6 @@ sub init {
 
     {
         my $f = Gtk2::Frame->new;
-        # expand, fill, padding
-        # fill has no effect if expand is 0.
         $outer_box->pack_start($f, 1, 1, 0);
         $f->add($W_hp->main);
     }
@@ -719,7 +723,8 @@ sub start_download {
         1;
     };
 
-    $W_ly->right->show_all;
+    # can go
+    #$W_ly->right->show_all;
 
     if ($first) {
         set_pane_position($G->width / 2);
@@ -838,7 +843,7 @@ sub watch_download {
 
     add_download($did, $mid, $t, $size, $of);
 
-    my $cur_size = -1;
+    my $cur_size;
 
     timeout 200, sub { 
         return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $status);
@@ -1033,6 +1038,7 @@ sub poll_downloads {
 
     my $eb_im_cancel = get_image_button('cancel', 'cancel_hover'); 
     my $eb_im_delete = get_image_button('delete', 'delete_hover'); 
+    my $eb_im_blank = get_image_button('blank');
 
     $eb_im_cancel->signal_connect('button-press-event', sub {
         cancel_download($mid);
@@ -1051,34 +1057,37 @@ sub poll_downloads {
         return 1;
     });
 
-    {
-        my $hb = Gtk2::HBox->new;
-        $hb->add($eb_im_cancel);
-        $hb->add($eb_im_delete);
-
-        $G->controls->{$mid} = $hb;
-    }
-
     # title
     $vb->add($l1);
 
     {
-        # bottom, doesn't work
-        my $al = Gtk2::Alignment->new(0, 1, 0, 0);
         my $hb = Gtk2::HBox->new;
 
         # cur 
-        $hb->add($l2);
+        $hb->pack_start($l2, 0, 0, 0);
         # / 
-        $hb->add($l3);
+        $hb->pack_start($l3, 0, 0, 0);
         # total
-        $hb->add($l4);
+        $hb->pack_start($l4, 0, 0, 0);
 
-        $al->add($hb);
-   
-        $vb->add($al);
-        $hb->pack_start($G->controls->{$mid}, 0, 0, 20);
-        $hb->modify_bg('normal', $Col->white);
+        $hb->pack_end($eb_im_delete, 0, 0, 0);
+        $hb->pack_end($eb_im_cancel, 0, 0, 5);
+
+        # bottom, doesn't work
+        #my $al = Gtk2::Alignment->new(0, 1, 0, 0);
+
+        my $eb = Gtk2::EventBox->new;
+        $eb->add($hb);
+
+        my $hb_outer = Gtk2::HBox->new;
+        $hb_outer->pack_start($eb_im_blank, 0, 0, 0);
+        $hb_outer->pack_start($eb, 1, 1, 0);
+
+        $vb->add($hb_outer);
+
+        $eb->modify_bg('normal', $Col->white);
+
+        $G->controls->{$mid} = $eb;
     }
 
     $vb->modify_bg('normal', $Col->white);
@@ -1094,49 +1103,29 @@ sub poll_downloads {
         });
 
         $W_ly->right->put($eb, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($HP + $RIGHT_SPACING_V));
+
+        $eb->show_all;
     }
 
     remove_wait_label($mid);
 
-
     update_scroll_area(+1);
-    $W_ly->right->show_all;
+    #$W_ly->right->show_all;
 
-    # look into GSignalFlags and :after ??
     {
-        my $i = $G->info_box->{$mid};
-        set_cursor_timeout($i, 'hand2');
-        sig $i, 'enter-notify-event', sub {
-D 'entered';
-D 'returning' if $G->controls_lock_show->{$mid};
-            return 0 if $G->controls_lock_show->{$mid};
-            my $c = $G->controls->{$mid} or warn, return;
+        set_cursor_timeout($G->info_box->{$mid}, 'hand2');
 
-            $G->controls_lock_hide->{$mid} = 1;
-
-            $c->show;
-        };
-
-last;
-        sig $i, 'leave-notify-event', sub {
-D 'left';
-D 'returning' if $G->controls_lock_hide->{$mid};
-            return 0 if $G->controls_lock_hide->{$mid};
-            my $c = $G->controls->{$mid} or warn, return;
-
-            $G->controls_lock_show->{$mid} = 1;
-
-            $c->hide;
-        };
-
-        sig $G->controls->{$mid}, 'hide', sub {
-D 'resetting hide';
-            $G->controls_lock_hide->{$mid} = 0
-        };
-        sig $G->controls->{$mid}, 'show', sub {
-D 'resetting show';
-            $G->controls_lock_show->{$mid} = 0
-        };
+#        sig $G->controls->{$mid}, 'enter-notify-event', sub {
+#            D 'inner entered!';
+#            # don't let inner enter trigger outer leave
+#            $G->controls_lock_leave->{$mid} = 1;
+#        };
+        #
+        #sig $G->controls->{$mid}, 'leave-notify-event', sub {
+        #    D 'inner left!';
+        #    # don't let inner leave trigger outer enter
+        #    $G->controls_lock_enter->{$mid} = 1;
+        #};
     }
 
     # check size, update download status, update pixmap
@@ -1324,6 +1313,35 @@ sub download_finished {
     $_->hide for $G->controls->{$mid}, list $G->size_label->{$mid};
     #$_->destroy, undef $_ for $G->controls->{$mid}, list $G->size_label->{$mid};
     $G->download_successful->{$mid} = 1;
+
+    my $i = $G->info_box->{$mid};
+
+    sig $i, 'enter-notify-event', sub {
+
+        my ($self, $event) = @_;
+
+        # only interested if entered from outside (not from inner boxes)
+        return if $event->detail eq 'inferior';
+
+        #my $c = $G->controls->{$mid} or warn, return;
+        my $c = $G->controls->{$mid} or warn, return;
+
+        $c->show;
+    };
+
+    sig $i, 'leave-notify-event', sub {
+        my ($self, $event) = @_;
+
+        # only interested if leaving towards outside (not towards inner
+        # boxes)
+        my $detail = $event->detail;
+        return if $detail eq 'inferior';
+
+        my $c = $G->controls->{$mid} or warn, return;
+        $c->hide;
+    };
+
+
 }
 
 sub cancel_download {
@@ -1921,23 +1939,33 @@ sub get_image_button {
     my $im = Gtk2::Image->new;
 
     my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($G->img($which));
-    my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($G->img($which_hover));
     $im->set_from_pixbuf($pix_normal);
 
     my $eb = Gtk2::EventBox->new;
     $eb->modify_bg('normal', $Col->white);
     $eb->add($im);
 
-    $eb->signal_connect('enter-notify-event', sub {
-        $im->set_from_pixbuf($pix_hover);
-    });
+    if ($which_hover) {
+        my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($G->img($which_hover));
+        $eb->signal_connect('enter-notify-event', sub {
+            $im->set_from_pixbuf($pix_hover);
+        });
 
-    $eb->signal_connect('leave-notify-event', sub {
-        $im->set_from_pixbuf($pix_normal);
-    });
+        $eb->signal_connect('leave-notify-event', sub {
+            $im->set_from_pixbuf($pix_normal);
+        });
+    }
 
     return $eb;
 }
 
 
 1;
+
+
+
+=head
+
+pack_start(obj, expand, fill, padding)
+    fill has no effect if expand is 0.
+
