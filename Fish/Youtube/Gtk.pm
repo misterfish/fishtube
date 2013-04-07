@@ -57,7 +57,7 @@ my $IMAGES_DIR = $main::bin_dir . '/../images';
 -d $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "doesn't exist.";
 -r $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "not readable";
 
-my $TIMEOUT_METADATA = 5000;
+my $TIMEOUT_METADATA = 15000;
 
 my %IMG = (
     add                 => 'add-12.png',
@@ -787,7 +787,7 @@ sub start_download {
         my $to = 200;
         timeout $to, sub {
             if ( ++$i > $TIMEOUT_METADATA / $to ) {
-                my $w = "Timeout waiting for async metadata"; 
+                my $w = "Timeout waiting for movie to start."; 
                 D $w;
                 #err $w;
                 movie_panic_while_waiting($mid, $w);
