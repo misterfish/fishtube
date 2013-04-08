@@ -27,11 +27,6 @@ use warnings;
 use threads;
 use threads::shared;
 
-# as early as possible to keep copies smaller
-# but stuff disappears after Gtk is inited ...
-#use Fish::Youtube::DownloadThreads;
-
-#use Gtk2;
 use Gtk2 qw/ -init -threads-init /;
 
 use Time::HiRes 'sleep';
@@ -48,9 +43,9 @@ use Fish::Youtube::Gtk;
 use Fish::Youtube::History;
 use Fish::Youtube::Get;
 
+use constant THREADING_DOWNLOADS => 0;
 
-#XX
-use Fish::Youtube::DownloadThreads;
+use if THREADING_DOWNLOADS, 'Fish::Youtube::DownloadThreads';
 
 sub error;
 sub war;
@@ -76,7 +71,7 @@ our ($opt_h, $opt_p, $opt_d, $opt_o);
 our $opt_Z;
 getopts('hp:do:Z');
 
-$Fish::Youtube::DownloadThreads::Debug_threads = $opt_Z;
+THREADING_DOWNLOADS and $Fish::Youtube::DownloadThreads::Debug_threads = $opt_Z;
 
 $opt_d and $Fish::Youtube::Utility::LOG_LEVEL++;
 
@@ -191,6 +186,7 @@ sub set_profile_dir {
 
 timeout( 1000, sub { poll_movies() } );
 
+
 # Output_dir can be undef
 $g->init($Output_dir, { profile_ask => $profile_ask });
 
@@ -283,6 +279,7 @@ sub start_download_sync {
 sub start_download_async {
     my $did = shift // die;
 
+D 'async';
     #used ?
     my $mid = shift // die;
 
@@ -325,85 +322,99 @@ sub _start_download {
 
     $msg->{tmp} = $tmp_dir;
 
-    my $t = 'Fish::Youtube::DownloadThreads';
+    my $do_async = $msg->{async};
 
-    my $tid = $t->queue_idle->dequeue;
+my $response;
+my $tid;
 
-    return if $tid < 0; # ?
+    if ($do_async) {
+        my $output_dir = $msg->{output_dir} or warn, return;
+        my $url = $msg->{url} or warn, return;
+        my $tmp = $msg->{tmp} or warn, return;
 
-    my $qo = $t->queues_in->{$tid};
-    my $qi = $t->queues_out->{$tid};
+my $Debug_downloads = 1;
 
-    my $response;
+        # as text, not id
+        my $prefq = $msg->{prefq};
+        defined $prefq or warn, return;
+        my $preft = $msg->{preft};
+        defined $preft or warn, return;
 
-    # send init msg
-    $qo->enqueue($msg);
+        # is_tolerant
+        my $itaq = $msg->{itaq};
+        defined $itaq or warn, return;
+        my $itat = $msg->{itat};
+        defined $itat or warn, return;
 
-    # recv: 
-    # {error => 1} 
-    # sync: available quals.
-    # async: { async => 1 }
-    DT 'waiting for metadata response.';
+        my @init = (
+            dir => $output_dir,
+            url => $url,
 
-    $response = $qi->dequeue or warn, return;
+            tmp => $tmp,
 
-    if ($msg->{async}) {
-        # We don't care about anything any more, just let it go.
-        # This signals caller to start watching.
-        $response->{async} or warn, return;
-        return $tid;
+            # gui should take care of prompting for overwrite
+            force => 1,
+
+            debug => $Debug_downloads,
+
+            preferred_qual => $prefq,
+            preferred_type => $preft,
+            is_tolerant_about_quality => $itaq,
+            is_tolerant_about_type => $itat,
+        );
+
+        my $get = Fish::Youtube::Get->new(@init);
+        #my $ok = $get->get(\$Cancel_by_did{$did});
+my $r;
+my $ok = $get->get(\$r);
     }
     else {
 
+warn 'not implemented';
+my $response;
+my $qo;
+my $qi;
+my $of;
         # note that errstr has to found out another way if async.
         my $e;
         $e = $response->{error} and warn ($response->{errstr} // ''), return;
-
 
         my @quals = list $response->{quals};
 
         my $qual = Fish::Youtube::Gtk::list_choice_dialog(\@quals, "Choose quality", {allow_cancel => 1});
 
         if ($qual) {
-            $qo->enqueue( { qual => $qual } );
+            #$qo->enqueue( { qual => $qual } );
         }
         else {
-            $qo->enqueue( { cancel => 1 });
+            #$qo->enqueue( { cancel => 1 });
             return -1;
         }
 
         # types for this qual
-        $response = $qi->dequeue or warn, return;
+        #$response = $qi->dequeue or warn, return;
 
         my @types = list $response->{types} or warn, return;
 
         my $type = Fish::Youtube::Gtk::list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
 
         if ($type) {
-            $qo->enqueue( { type => $type } );
         }
         else {
-            $qo->enqueue( { cancel => 1 });
-            return -1;
-        }
-
-        $response = $qi->dequeue or warn, return;
-    }
-
-    $response->{error} and warn, return;
-    $response->{got_metadata} or warn, return;
-
-    my $of = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did}->{of} or warn, return;
-
-    if (-r $of) {
-        my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
-     
-        if (!$ok) {
-            $qo->enqueue({ cancel => 1 });
             return -1;
         }
     }
-    $qo->enqueue({ go => 1});
+
+    #$response->{error} and warn, return;
+    #$response->{got_metadata} or warn, return;
+    #my $of = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did}->{of} or warn, return;
+
+    #if (-r $of) {
+    #my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
+         
+    #if (!$ok) {
+    #return -1;
+    #}
 
     # This signals caller to start watching.
     return $tid;
@@ -482,6 +493,7 @@ sub sanitize_filename {
 sub DT {
     $Fish::Youtube::DownloadThreads::Debug_threads and say "main: ", D_QUIET @_;
 }
+
 END {
     # die is ok in end
     for my $d (@Tmp_dirs) {

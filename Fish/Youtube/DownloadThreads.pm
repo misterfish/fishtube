@@ -283,8 +283,8 @@ sub thread {
 
         my $ok = $get->get(\$Cancel_by_did{$did});
 
-     D_ 'done with get';
-     D_ 'cancel:', $Cancel_by_did{$did};
+    #D 'done with get';
+    #D 'cancel:', $Cancel_by_did{$did};
 
         if ($Cancel_by_did{$did}) {
             $Status_by_did{$did}->{status} = 'cancelled';

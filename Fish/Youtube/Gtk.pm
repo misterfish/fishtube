@@ -15,6 +15,9 @@ use Gtk2::Pango;
 
 die "Glib::Object thread safety failed" unless Glib::Object->set_threadsafe (1);
 
+use AnyEvent;
+use AnyEvent::HTTP;
+
 use Time::HiRes 'sleep';
 
 use File::stat;
@@ -25,11 +28,11 @@ use Math::Trig ':pi';
 use Fish::Gtk2::Label;
 my $L = 'Fish::Gtk2::Label';
 
-use Fish::Youtube::DownloadThreads;
-
 use Fish::Youtube::Utility;
 use Fish::Youtube::Download;
 use Fish::Youtube::Anarchy;
+
+use Fish::Youtube::Get;
 
 my $D = 'Fish::Youtube::Download';
 
@@ -173,8 +176,6 @@ my $G = o(
     height => $HEIGHT,
     # calculated
     width => -1,
-
-    max_threads => Fish::Youtube::DownloadThreads->max_threads,
 
     auto_start_watching => 1,
 
@@ -507,8 +508,16 @@ my $SIMULATE = 0;
     # make Y, R, etc. no-ops
     disable_colors();
 
+my $wait_one_and_a_half_seconds = AnyEvent->timer (
+      after => 1.5, 
+      cb    => sub { 
+         say 'hi'
+      },
+   );
+
     # internally releases lock on each iter.
     Gtk2->main;
+
     Gtk2::Gdk::Threads->leave;
 }
 
@@ -653,22 +662,14 @@ sub start_download {
     $G->last_did_inc;
     my $did = $G->last_did;
 
+
+    #'http://r1---sn-5hn7ym7r.c.youtube.com/videoplayback?upn=jcgKgOADZhs&ip=145.53.6.142&key=yt1&ipbits=8&ratebypass=yes&fexp=905607%2C923120%2C914091%2C932000%2C932004%2C906383%2C902000%2C901208%2C919512%2C929903%2C925714%2C931202%2C900821%2C900823%2C931203%2C931401%2C906090%2C909419%2C908529%2C930807%2C919373%2C930803%2C906836%2C920201%2C929602%2C930101%2C926403%2C900824%2C910223&source=youtube&sparams=cp%2Cid%2Cip%2Cipbits%2Citag%2Cratebypass%2Csource%2Cupn%2Cexpire&id=714c5a5134d9cccc&mv=m&ms=au&mt=1365440485&nh=EAE&itag=18&cp=U0hVSlRRUV9KSkNONV9MS1VKOm5jT0c0T1RRMlhV&sver=3&expire=1365463950&newshard=yes&signature=731407A1D1FB1F40816C6DAECA67D466ADEE65F9.0ECEDABCEA92419782944D908A62C343A977E22F';
+
     if (! $Output_dir) {
         # remove_all doesn't seem to work.
         $W_sb->main->pop(STATUS_OD);
         $W_sb->main->push(STATUS_OD, 'Choose output dir first.');
         return;
-    }
-
-    {
-        my $max_threads = $G->max_threads;
-        my $active_threads = Fish::Youtube::DownloadThreads->active_threads;
-        D2 'max_threads', $max_threads, 'active_threads', $active_threads;
-
-        if ($max_threads == $active_threads) {
-            warn $_, mess $_ for "max ($max_threads) downloads reached (increase \$NUM_THREADS)";
-            return;
-        }
     }
     
     $G->download_successful->{$mid} = 0;
@@ -731,50 +732,50 @@ sub start_download {
         $first = 0;
     }
 
-    # positive means no err so far and thread was launched.
-    # undef means err
-    # -1 means cancelled.
-    my $tid;
+    ### -1 means cancelled.
+
+    my $dl_tracker;
 
     if ($async) {
         #$tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
-        $tid = main::start_download_async($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat);
+        $dl_tracker = main::start_download_async($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat);
     }
     else {
-        $tid = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
+        warn 'not implemented';
+        $dl_tracker = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
     }
 
-    my $status = $Fish::Youtube::DownloadThreads::Status_by_did{$did};
+D 'started';
 
-    if (! $tid) {
-        # subproc failed.
+    if (! $dl_tracker) {
+        # couldn't start.
 
         my $e;
-        if ($status->{status} eq 'error') {
+$e = 'error';
+        #if ($status->{status} eq 'error') {
             war "Download thread reported error.";
-            warn $e if $e = $status->{errstr};
-        }
+            #warn $e if $e = $status->{errstr};
+            #}
 
         movie_panic_while_waiting($mid, $e);
 
         return;
     }
-    elsif ($tid == -1) {
+
+elsif ($dl_tracker->{cancelled}) {
         # cancelled 
         D2 'cancelled.';
         return;
     }
 
-    # Thread launched and signalled 'ready'. 
-
     $G->is_waiting->{$mid} = $wait_s;
 
-    my $md = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did};
+    my $md = $dl_tracker->{metadata};
 
-    if ($status->{status} eq 'error') {
-        war "Download thread reported error.";
+    if ($dl_tracker->{status} eq 'error') {
+        war "Download tracker reported error.";
         my $e;
-        warn $e if $e = $status->{errstr};
+        warn $e if $e = $dl_tracker->{errstr};
     }
 
     my $size;
@@ -800,8 +801,8 @@ sub start_download {
 
                 my $of = $md->{of} or warn, return;
 
-                timeout 500, sub { 
-                    watch_download($did, $mid, $t, $status, $of, $size, $manual) 
+                timeout 500, sub {
+                    watch_download($did, $mid, $t, $dl_tracker, $of, $size, $manual) 
                 };
 
                 return 0;
@@ -815,19 +816,19 @@ sub start_download {
         my $of = $md->{of} or warn, return;
 
         timeout 500, sub { 
-            watch_download($did, $mid, $t, $status, $of, $size, $manual) 
+            watch_download($did, $mid, $t, $dl_tracker, $of, $size, $manual) 
         };
     }
     # / child wait
 }
 
 sub watch_download {
-    my ($did, $mid, $t, $status, $of, $size, $manual) = @_;
+    my ($did, $mid, $t, $dl_tracker, $of, $size, $manual) = @_;
 
-    if ($status->{status} eq 'error') {
+    if ($dl_tracker->{status} eq 'error') {
         war "Download thread reported error.";
         my $e;
-        warn $e if $e = $status->{errstr};
+        warn $e if $e = $dl_tracker->{errstr};
         movie_panic_while_waiting($mid, $e);
         return 0;
     }
@@ -846,7 +847,7 @@ sub watch_download {
     my $cur_size;
 
     timeout 200, sub { 
-        return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $status);
+        return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $dl_tracker);
     };
     
     timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
@@ -870,6 +871,7 @@ sub auto_start_watching {
     return 1;
 }
 
+=head
 sub get_metadata {
     my ($file) = @_;
 
@@ -890,6 +892,7 @@ sub get_metadata {
 
     return;
 }
+=cut
 
 sub file_progress {
     my $simulate;
@@ -899,8 +902,7 @@ sub file_progress {
     }
 
     # cur_size_r is watched from outside.
-    # status is the shared thread obj.
-    my ($mid, $file, $cur_size_r, $size, $status) = @_;
+    my ($mid, $file, $cur_size_r, $size, $dl_tracker) = @_;
 
     my $s = stat $file or warn(), return 1;
 
@@ -912,18 +914,18 @@ sub file_progress {
     my $cs = $s->size;
     $$cur_size_r = $cs unless $cs == -1;
 
-    if ($status->{status} eq 'error') {
+    if ($dl_tracker->{status} eq 'error') {
         my $e;
-        war $e if $e = $status->{errstr};
+        war $e if $e = $dl_tracker->{errstr};
         movie_panic($mid, $e);
         return 0;
     }
-    elsif ($status->{status} eq 'done') {
+    elsif ($dl_tracker->{status} eq 'done') {
         $done = 1;
         download_finished($mid);
         warn unless $$cur_size_r == $size;
     }
-    elsif ($status->{status} eq 'cancelled') {
+    elsif ($dl_tracker->{status} eq 'cancelled') {
         D2 'cancelled!';
         $delete = 1;
     }
@@ -1352,14 +1354,14 @@ sub cancel_download {
     my $did = $d->did;
 
     # XX
-    {
-        lock %Fish::Youtube::DownloadThreads::Status_by_did;
-        $Fish::Youtube::DownloadThreads::Status_by_did{$did}->{status} = 'cancelled';
-    }
-    {
-        lock %Fish::Youtube::DownloadThreads::Cancel_by_did;
-        $Fish::Youtube::DownloadThreads::Cancel_by_did{$did} = 1;
-    }
+    #{
+        #lock %Fish::Youtube::DownloadThreads::Status_by_did;
+        #$Fish::Youtube::DownloadThreads::Status_by_did{$did}->{status} = 'cancelled';
+        #}
+        #{
+        #lock %Fish::Youtube::DownloadThreads::Cancel_by_did;
+        #$Fish::Youtube::DownloadThreads::Cancel_by_did{$did} = 1;
+        #}
 
 }
 

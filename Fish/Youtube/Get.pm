@@ -18,6 +18,8 @@ use URI::Escape qw/ uri_unescape uri_escape /;
 use HTML::Entities qw/ decode_entities encode_entities /;
 use IO::File;
 
+use AnyEvent::HTTP;
+
 use Fish::Youtube::Utility;
 
 #use POSIX ':sys_wait_h';
@@ -115,6 +117,11 @@ has quality => (
     is  => 'ro',
     isa => 'Str',
     writer => '_set_quality',
+);
+
+has getter => (
+    is => 'rw',
+    #isa => 'AnyEvent::HTTP',
 );
 
 has type => (
@@ -331,6 +338,8 @@ sub get {
     # cancel_r allows cancel while downloading
     my ($self, $cancel_r) = @_;
 
+my $NEW = 1;
+
     my $of = $self->out_file;
     if (-e $of and ! $self->force) {
         my $pwd = sys_chomp 'pwd';
@@ -364,30 +373,68 @@ sub get {
         $cancel_r = \$cancel;
     }
 
-    my @callback = (':content_cb' => sub { 
-        my ($chunk, $res, $protocol) = @_;
+    if (!$NEW) {
 
-        syswrite $fh, $chunk;
+        my @callback = (':content_cb' => sub { 
+            my ($chunk, $res, $protocol) = @_;
+
+            syswrite $fh, $chunk;
+
+            if ($$cancel_r) {
+                #$self->d2('cancelling download');
+    D 'cancelling download';
+                die;
+            }
+        });
+
+        $ua->max_size(undef);
+
+        my $res = $ua->get($url,
+            #':content_file'     => $of,
+            @callback,
+        );
 
         if ($$cancel_r) {
-            $self->d2('cancelling download');
-            die;
+            $self->d('cancelled.');
+            return;
         }
-    });
+        elsif (!$res->is_success) {
+            $self->war("Can't get movie:", Y $res->status_line );
+            return;
+        }
 
-    $ua->max_size(undef);
+    }
+    else {
+warn 'doing it!';
+D 'url', $url;
+#my $getter = http_get $url, sub { 
+http_get $url, sub { 
+            my ($body, $headers_r) = @_;
+            my $status = $headers_r->{Status};
 
-    my $res = $ua->get($url,
-        #':content_file'     => $of,
-        @callback,
-    );
+            D 'cb', $body;
 
-    if (!$res->is_success) {
-        $self->war("Can't get movie:", Y $res->status_line );
-        return;
+            if ($status =~ /^2/) {
+                D 'ok';
+            } else {
+               D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+               $self->war("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+            }
+        };
+
+        #$self->getter($getter);
     }
 
     return 1;
+}
+
+sub cancel {
+    my ($self) = @_;
+    my $getter = $self->getter or war ("Trying to cancel a non-running download?"),
+        return;
+
+    # cancels
+    $self->getter(undef);
 }
 
 sub extract_urls {
