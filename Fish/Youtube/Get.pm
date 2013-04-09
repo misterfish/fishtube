@@ -6,9 +6,6 @@ use Moose;
 
 use 5.10.0;
 
-#use threads;
-#use threads::shared;
-
 use Term::ANSIColor;
 use Data::Dumper 'Dumper';
 
@@ -119,10 +116,10 @@ has quality => (
     writer => '_set_quality',
 );
 
-has getter => (
-    is => 'rw',
-    #isa => 'AnyEvent::HTTP',
-);
+#has getter => (
+#    is => 'rw',
+#    #isa => 'AnyEvent::HTTP',
+#);
 
 has type => (
     is  => 'ro',
@@ -135,11 +132,6 @@ has no_init_params => (
     is  => 'ro',
     isa => 'Bool',
 );
-
-#has error_file => (
-#    is  => 'ro',
-#    isa => 'Str',
-#);
 
 has _efh => (
     is  => 'rw',
@@ -187,10 +179,10 @@ sub BUILD {
     $self->preferred_type('x-flv') if $self->preferred_type eq 'flv';
 
     my $tmp = $self->tmp;
-    (-d $tmp and -w $tmp) or $self->war("Invalid tmp:", R $tmp), return;
+    (-d $tmp and -w $tmp) or $self->err("Invalid tmp:", R $tmp), return;
 
     my $ef = "$tmp/yt-err";
-    my $fh = IO::File->new(">$ef") or $self->war("Can't open error file", Y $ef, R $!), return;
+    my $fh = IO::File->new(">$ef") or $self->err("Can't open error file", Y $ef, R $!), return;
     $self->_efh($fh);
     $fh->autoflush(1);
 
@@ -214,7 +206,7 @@ sub BUILD {
     my $res = $self->ua->get($self->url);
 
     if (!$res->is_success) {
-        $self->war("Can't get avail:", Y $res->status_line );
+        $self->err("Can't get avail:", Y $res->status_line );
         return;
     }
 
@@ -224,7 +216,7 @@ sub BUILD {
     $self->d2('getting metadata.');
 
 # Test error
-#$self->war('blah!'); while (1) { sleep 1;
+#$self->err('blah!'); while (1) { sleep 1;
 
     my $c = $res->decoded_content;
 
@@ -233,7 +225,7 @@ sub BUILD {
 
     my $data = $self->extract_urls(\$c);
     if (!$data) {
-        $self->war("Couldn't get avail.");
+        $self->err("Couldn't get avail.");
         return;
     }
     $self->d2('data', $data);
@@ -269,7 +261,7 @@ sub set {
         $self->_movie_url($u);
     }
     else {
-        $self->war("Invalid quality and type", Y $quality, B $type);
+        $self->err("Invalid quality and type", Y $quality, B $type);
         return 0;
     }
 
@@ -311,10 +303,7 @@ sub get_size {
     my ($self) = @_;
     $self->error and warn, return;
     my $url = $self->_movie_url;
-    if (!$url) {
-        warn;
-        return;
-    }
+    $url or warn, return;
 
     my $ua = $self->ua;
 
@@ -326,7 +315,9 @@ sub get_size {
         $cl = $res->header('content-length');
     });
 
+    # get 1 byte
     $ua->max_size(1);
+
     $ua->get($url);
 
     $self->d2('got cl', $cl);
@@ -336,9 +327,7 @@ sub get_size {
 
 sub get {
     # cancel_r allows cancel while downloading
-    my ($self, $cancel_r) = @_;
-
-my $NEW = 1;
+    my ($self, $done_r, $cancel_r) = @_;
 
     my $of = $self->out_file;
     if (-e $of and ! $self->force) {
@@ -347,7 +336,7 @@ my $NEW = 1;
             $of = "$pwd/$of";
         }
         utf8::encode($of);
-        $self->war(Y $of, "exists");
+        $self->err(Y $of, "exists");
         return;
     }
     sys qq, touch "$of" ,;
@@ -359,71 +348,67 @@ my $NEW = 1;
         return;
     }
 
-    my $ua = $self->ua;
-
-    my $u_sub = substr($url, 0, 20) . "...";
-
     $self->d2('url', $url);
 
     # will die on error, has been checked above
     my $fh = safeopen ">$of";
 
-    if (! $cancel_r) {
-        my $cancel = 0;
-        $cancel_r = \$cancel;
+    if (! $done_r) {
+        my $t = '';
+        $done_r = \$t;
     }
 
-    if (!$NEW) {
+    if (! $cancel_r) {
+        my $t = 0;
+        $cancel_r = \$t;
+    }
 
-        my @callback = (':content_cb' => sub { 
-            my ($chunk, $res, $protocol) = @_;
+    my $size = $self->get_size or warn;
+    $self->size($size);
 
-            syswrite $fh, $chunk;
+    # Uses glib mainloop for 'async' get.
 
-            if ($$cancel_r) {
-                #$self->d2('cancelling download');
-    D 'cancelling download';
-                die;
+# stand-alone ... XX
+
+    if ($self->mode eq 'eventloop') {
+        http_get $url, 
+            on_body => sub {
+                my ($buf, $headers_r) = @_;
+
+                if ($$cancel_r) {
+                    $self->d('cancelled.');
+                    return;
+                }
+
+                my $status = $headers_r->{Status};
+                if ($status !~ /^2/) {
+                    D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+                    $self->err("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+                    return;
+                }
+
+                syswrite $fh, $buf or warn, return;
+
+                1;
+            }, sub {
+                my ($body, $headers_r) = @_;
+                my $status = $headers_r->{Status};
+
+                if ($status !~ /^2/) {
+                    D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+                    $self->err("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+                    return;
+                }
+
+                # all done, no body here.
+                $$done_r = 1;
             }
-        });
-
-        $ua->max_size(undef);
-
-        my $res = $ua->get($url,
-            #':content_file'     => $of,
-            @callback,
-        );
-
-        if ($$cancel_r) {
-            $self->d('cancelled.');
-            return;
-        }
-        elsif (!$res->is_success) {
-            $self->war("Can't get movie:", Y $res->status_line );
-            return;
-        }
-
+        ;
     }
     else {
-warn 'doing it!';
-D 'url', $url;
-#my $getter = http_get $url, sub { 
-http_get $url, sub { 
-            my ($body, $headers_r) = @_;
-            my $status = $headers_r->{Status};
-
-            D 'cb', $body;
-
-            if ($status =~ /^2/) {
-                D 'ok';
-            } else {
-               D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
-               $self->war("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
-            }
-        };
-
-        #$self->getter($getter);
+        $ua->get(
     }
+
 
     return 1;
 }
@@ -453,7 +438,7 @@ sub extract_urls {
         my $u = $1;
         if (!$u) {
             D 'Failed content', $c;
-            $self->war("Couldn't find url_encoded_fmt_stream_map in content.");
+            $self->err("Couldn't find url_encoded_fmt_stream_map in content.");
             return;
         }
 
@@ -472,14 +457,14 @@ sub extract_urls {
             }
 
             for (qw/ url itag type fallback_host sig quality / ) {
-                $vars{$_} or $self->war( "Couldn't find ", G $_, " in u: ", $u);
+                $vars{$_} or $self->err( "Couldn't find ", G $_, " in u: ", $u);
             }
 
             $vars{url} .= "&signature=$vars{sig}";
 
-            my $u = $vars{url} or $self->war("Can't find URL"), return;
-            my $q = $vars{quality} or $self->war("Can't find quality"), return;
-            my $t = $vars{type} or $self->war("Can't find type"), return;
+            my $u = $vars{url} or $self->err("Can't find URL"), return;
+            my $q = $vars{quality} or $self->err("Can't find quality"), return;
+            my $t = $vars{type} or $self->err("Can't find type"), return;
 
             $self->d2('type', $t);
             $self->d2('qual', $q);
@@ -490,10 +475,10 @@ sub extract_urls {
             next;
         }
         elsif ($u =~ / url /x) {
-            $self->war( "Not implemented: url");
+            $self->err( "Not implemented: url");
         }
         else {
-            $self->war( R "Didn't find", G 'itag', R 'or', G 'url', R 'in', G 'u:', BB $u);
+            $self->err( R "Didn't find", G 'itag', R 'or', G 'url', R 'in', G 'u:', BB $u);
         }
     }
 
@@ -510,7 +495,7 @@ sub END {
 
 # warn to stdout, write to errfile if present, and store in errstr and set
 # error flag.
-sub war {
+sub err {
     my ($self, @s) = @_;
     my $s = join ' ', @s, "\n";
     warn $s;
@@ -561,7 +546,7 @@ sub _set_params {
 
     if (not $t) {
         if (! $self->is_tolerant_about_type) {
-            $self->war("Can't get preferred type", Y $pt, "and not tolerant.");
+            $self->err("Can't get preferred type", Y $pt, "and not tolerant.");
             return;
         }
 
@@ -569,7 +554,7 @@ sub _set_params {
 
     if (not $q) {
         if (! $self->is_tolerant_about_quality) {
-            $self->war("Can't get preferred quality", Y $pq, "and not tolerant.");
+            $self->err("Can't get preferred quality", Y $pq, "and not tolerant.");
             return;
         }
     }
@@ -587,7 +572,7 @@ sub _set_params {
 
         # panic -- unknown type
         my $ty = (keys %$d)[0];
-        $self->war( "Setting unrecognised type:", Y $ty);
+        $self->err( "Setting unrecognised type:", Y $ty);
         $self->_set_type($ty);
         return 1;
     }
@@ -603,7 +588,7 @@ sub _set_params {
 
         # panic -- unknown qual
         my $qu = (keys %$d)[0];
-        $self->war( "Setting unrecognised quality:", Y $qu);
+        $self->err( "Setting unrecognised quality:", Y $qu);
         $self->_set_quality($qu);
         return 1;
     }
@@ -615,9 +600,9 @@ sub _set_params {
             last;
         }
         if (!$d) {
-            $self->war( "No known qualities.");
+            $self->err( "No known qualities.");
             my $qu = (keys %$abq)[0];
-            $self->war( "Setting unrecognised quality:", Y $qu);
+            $self->err( "Setting unrecognised quality:", Y $qu);
             $self->_set_quality($qu);
             $d = $abq->{$qu};
         }
@@ -630,9 +615,9 @@ sub _set_params {
             return 1;
         }
 
-        $self->war( "No known types.");
+        $self->err( "No known types.");
         my $ty = (keys %$abt)[0];
-        $self->war( "Setting unrecognised quality:", Y $ty);
+        $self->err( "Setting unrecognised quality:", Y $ty);
         $self->_set_type($ty);
         return 1;
     }

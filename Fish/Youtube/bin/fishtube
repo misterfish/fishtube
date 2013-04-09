@@ -73,7 +73,11 @@ getopts('hp:do:Z');
 
 THREADING_DOWNLOADS and $Fish::Youtube::DownloadThreads::Debug_threads = $opt_Z;
 
-$opt_d and $Fish::Youtube::Utility::LOG_LEVEL++;
+my $debug;
+if ($opt_d) {
+    $debug = 1;
+    $Fish::Youtube::Utility::LOG_LEVEL++;
+}
 
 $| = 1;
 
@@ -279,7 +283,6 @@ sub start_download_sync {
 sub start_download_async {
     my $did = shift // die;
 
-D 'async';
     #used ?
     my $mid = shift // die;
 
@@ -296,8 +299,7 @@ D 'async';
     D2 'starting async.';
 
     my $msg = {
-        # wrong, we don't know it yet.
-        #of => $output_file,
+        # note that we don't know output_file; Get sets it.
 
         output_dir => $output_dir,
 
@@ -324,15 +326,15 @@ sub _start_download {
 
     my $do_async = $msg->{async};
 
-my $response;
-my $tid;
+    my %dl_tracker = ();
+
+    my %md = ();
+    $dl_tracker{metadata} = \%md;
 
     if ($do_async) {
         my $output_dir = $msg->{output_dir} or warn, return;
         my $url = $msg->{url} or warn, return;
         my $tmp = $msg->{tmp} or warn, return;
-
-my $Debug_downloads = 1;
 
         # as text, not id
         my $prefq = $msg->{prefq};
@@ -355,7 +357,7 @@ my $Debug_downloads = 1;
             # gui should take care of prompting for overwrite
             force => 1,
 
-            debug => $Debug_downloads,
+            debug => $debug,
 
             preferred_qual => $prefq,
             preferred_type => $preft,
@@ -365,8 +367,21 @@ my $Debug_downloads = 1;
 
         my $get = Fish::Youtube::Get->new(@init);
         #my $ok = $get->get(\$Cancel_by_did{$did});
-my $r;
-my $ok = $get->get(\$r);
+my $cancel;
+
+        my $done = '';
+        my $ok = $get->get(\$done, \$cancel);
+        if (!$ok) {
+            $dl_tracker{errstr} = $get->errstr;
+            $dl_tracker{status} = 'error';
+        }
+        else {
+            $dl_tracker{status} = 'started';
+            $dl_tracker{done_r} = \$done;
+
+            $md{size} = $get->size or warn;
+            $md{of} = $get->out_file or warn;
+        }
     }
     else {
 
@@ -398,26 +413,16 @@ my $of;
 
         my $type = Fish::Youtube::Gtk::list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
 
-        if ($type) {
+        if (! $type) {
+            $dl_tracker{status} = 'cancelled';
         }
-        else {
-            return -1;
-        }
+        # else ok
     }
-
-    #$response->{error} and warn, return;
-    #$response->{got_metadata} or warn, return;
-    #my $of = $Fish::Youtube::DownloadThreads::Metadata_by_did{$did}->{of} or warn, return;
 
     #if (-r $of) {
     #my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
          
-    #if (!$ok) {
-    #return -1;
-    #}
-
-    # This signals caller to start watching.
-    return $tid;
+    return \%dl_tracker;
 }
 
 

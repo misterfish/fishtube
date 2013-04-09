@@ -508,13 +508,6 @@ my $SIMULATE = 0;
     # make Y, R, etc. no-ops
     disable_colors();
 
-my $wait_one_and_a_half_seconds = AnyEvent->timer (
-      after => 1.5, 
-      cb    => sub { 
-         say 'hi'
-      },
-   );
-
     # internally releases lock on each iter.
     Gtk2->main;
 
@@ -732,38 +725,31 @@ sub start_download {
         $first = 0;
     }
 
-    ### -1 means cancelled.
-
     my $dl_tracker;
 
     if ($async) {
-        #$tid = main::start_download_async($did, $mid, $u, $of, $prefq, $preft, $itaq, $itat);
         $dl_tracker = main::start_download_async($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat);
     }
     else {
-        warn 'not implemented';
+
+warn 'not implemented';
+
         $dl_tracker = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
     }
 
-D 'started';
+    $dl_tracker or warn, return;
 
-    if (! $dl_tracker) {
-        # couldn't start.
-
+    if ($dl_tracker->{status} eq 'error') {
         my $e;
-$e = 'error';
-        #if ($status->{status} eq 'error') {
-            war "Download thread reported error.";
-            #warn $e if $e = $status->{errstr};
-            #}
+        war "Download thread reported error.";
+        warn $e if $e = $dl_tracker->{errstr};
 
         movie_panic_while_waiting($mid, $e);
 
         return;
     }
 
-elsif ($dl_tracker->{cancelled}) {
-        # cancelled 
+    elsif ($dl_tracker->{cancelled}) {
         D2 'cancelled.';
         return;
     }
@@ -771,12 +757,6 @@ elsif ($dl_tracker->{cancelled}) {
     $G->is_waiting->{$mid} = $wait_s;
 
     my $md = $dl_tracker->{metadata};
-
-    if ($dl_tracker->{status} eq 'error') {
-        war "Download tracker reported error.";
-        my $e;
-        warn $e if $e = $dl_tracker->{errstr};
-    }
 
     my $size;
 
@@ -914,13 +894,15 @@ sub file_progress {
     my $cs = $s->size;
     $$cur_size_r = $cs unless $cs == -1;
 
+    my $done_r = $dl_tracker->{done_r};
+
     if ($dl_tracker->{status} eq 'error') {
         my $e;
         war $e if $e = $dl_tracker->{errstr};
         movie_panic($mid, $e);
         return 0;
     }
-    elsif ($dl_tracker->{status} eq 'done') {
+    elsif ($$done_r) {
         $done = 1;
         download_finished($mid);
         warn unless $$cur_size_r == $size;
@@ -947,10 +929,9 @@ sub file_progress {
         return 0;
     }
     else {
+        # should have been flagged done by now.
         warn if $$cur_size_r == $size;
     }
-
-    #D2 'cur_size', $$cur_size_r;
 
     # still downloading
     return 1;
