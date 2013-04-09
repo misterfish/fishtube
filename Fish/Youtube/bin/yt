@@ -49,11 +49,11 @@ $Fish::Youtube::Utility::LOG_LEVEL = 1;
 use 5.10.0;
 
 my %opts;
-getopts('khg:n:u:atfl', \%opts);
+getopts('khg:n:u:atflF', \%opts);
 
 $DIR = '/stuff' if sys ('hostname') ~~ ["carajo\n", "boldog\n"];
 
-my $USAGE = "Usage: $0 -k | [-a | -t | -f | -u url] [-l (to log)] [-g gain] [-n num=1]\n";
+my $USAGE = "Usage: $0 -k | [-a | -t | -f | -u url] [-l (to log)] [-g gain] [-F to pass force to yt-get] [-n num=1]\n";
 
 my $Child_pid;
 my $Out_file;
@@ -110,8 +110,8 @@ elsif ($opts{f}) {
     $opts{t} and die $USAGE;
     $opts{u} and die $USAGE;
 
-$Out_file = get_movie_from_fd();
-    #D 'out_file', $Out_file;
+    $Out_file = get_movie_from_fd();
+    D 'out_file', $Out_file;
     exit 0;
 }
 elsif ($opts{t}) {
@@ -186,12 +186,12 @@ sub get_movie {
     my $movie_file;
     my $get = 1;
 
-    my $cmd = qq, "$Yg" "$url" , ;
-D 'cmd', $cmd;
-#my ($pid) = sync_exec $cmd;
-    say sys $cmd;
+    my $force = $opts{F} ? '-f' : '';
+    my $cmd = qq, "$Yg" $force "$url" , ;
 
-    #return $movie_file;
+    D 'cmd', $cmd;
+
+    say sys $cmd;
 }
 
 sub error {

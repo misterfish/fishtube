@@ -349,6 +349,8 @@ sub _start_download {
         defined $itat or warn, return;
 
         my @init = (
+            mode => 'eventloop',
+
             dir => $output_dir,
             url => $url,
 

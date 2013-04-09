@@ -123,7 +123,7 @@ if (my ($ext) = ($of =~ /\.([^\.]+)$/)) {
 
 my $size = $get->get_size;
 
-if (open my $fh, ">$TMP/.yt-file-$$") {
+if (open my $fh, ">:utf8", "$TMP/.yt-file-$$") {
     say $fh $of;
     say $fh $size;
 }

@@ -53,6 +53,12 @@ has force => (
     default => 0,
 );
 
+has mode => (
+    is => 'ro',
+    isa => 'Str',
+    default => 'standalone',
+);
+
 # optional, defaults to cur dir
 has dir => (
     is  => 'ro',
@@ -406,9 +412,25 @@ sub get {
         ;
     }
     else {
-        $ua->get(
-    }
+        my @callback = (':content_cb' => sub { 
+            my ($chunk, $res, $protocol) = @_;
 
+            syswrite $fh, $chunk;
+        });
+
+        my $ua = $self->ua;
+        $self->ua->max_size(undef);
+
+        my $res = $ua->get($url,
+            #':content_file'     => $of,
+            @callback,
+        );
+
+        if (!$res->is_success) {
+            $self->war("Can't get movie:", Y $res->status_line );
+            return;
+        }
+    }
 
     return 1;
 }
