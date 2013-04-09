@@ -25,9 +25,20 @@ $SIG{INT} = $SIG{KILL} = sub { exit(1) };
 
 my $DEFAULT_TMP = '/tmp';
 
+has status => (
+    is  => 'ro',
+    isa => 'Str',
+    writer => 'set_status',
+);
+
 has _c => (
     is => 'rw',
     isa => 'Str',
+);
+
+has _cancel => (
+    is => 'rw',
+    isa => "Bool",
 );
 
 # optional, determined from title if missing
@@ -121,11 +132,6 @@ has quality => (
     isa => 'Str',
     writer => '_set_quality',
 );
-
-#has getter => (
-#    is => 'rw',
-#    #isa => 'AnyEvent::HTTP',
-#);
 
 has type => (
     is  => 'ro',
@@ -335,7 +341,8 @@ sub get {
     # cancel_r allows cancel while downloading
     my ($self, $done_r, $cancel_r) = @_;
 
-    my $of = $self->out_file;
+    my $of = $self->out_file or warn, return;
+
     if (-e $of and ! $self->force) {
         my $pwd = sys_chomp 'pwd';
         if ($of !~ /^\//) {
@@ -359,61 +366,49 @@ sub get {
     # will die on error, has been checked above
     my $fh = safeopen ">$of";
 
-    if (! $done_r) {
-        my $t = '';
-        $done_r = \$t;
-    }
-
-    if (! $cancel_r) {
-        my $t = 0;
-        $cancel_r = \$t;
-    }
-
     my $size = $self->get_size or warn;
     $self->size($size);
 
     # Uses glib mainloop for 'async' get.
 
-# stand-alone ... XX
+    $self->set_status('started');
 
     if ($self->mode eq 'eventloop') {
         http_get $url, 
             on_body => sub {
                 my ($buf, $headers_r) = @_;
 
-                if ($$cancel_r) {
+                if ($self->_cancel) {
                     $self->d('cancelled.');
+                    $self->set_status('cancelled');
                     return;
                 }
 
-                my $status = $headers_r->{Status};
-                if ($status !~ /^2/) {
-                    D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
-                    $self->err("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
-                    return;
-                }
+                return unless $self->headers_ok($headers_r);
 
                 syswrite $fh, $buf or warn, return;
 
                 1;
             }, sub {
                 my ($body, $headers_r) = @_;
-                my $status = $headers_r->{Status};
 
-                if ($status !~ /^2/) {
-                    D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
-                    $self->err("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
-                    return;
-                }
+                return if $self->_cancel;
 
+                return unless $self->headers_ok($headers_r);
                 # all done, no body here.
-                $$done_r = 1;
+                $self->set_status('done');
             }
         ;
     }
     else {
         my @callback = (':content_cb' => sub { 
             my ($chunk, $res, $protocol) = @_;
+
+            if ($self->_cancel) {
+                $self->d('cancelled.');
+                $self->set_status('cancelled');
+                return;
+            }
 
             syswrite $fh, $chunk;
         });
@@ -427,21 +422,20 @@ sub get {
         );
 
         if (!$res->is_success) {
-            $self->war("Can't get movie:", Y $res->status_line );
+            $self->err("Can't get movie:", Y $res->status_line );
             return;
         }
+
+        $self->set_status('done');
     }
 
     return 1;
 }
 
+# destroy XX
 sub cancel {
     my ($self) = @_;
-    my $getter = $self->getter or war ("Trying to cancel a non-running download?"),
-        return;
-
-    # cancels
-    $self->getter(undef);
+    $self->_cancel(1);
 }
 
 sub extract_urls {
@@ -526,6 +520,7 @@ sub err {
     }
     $self->set_error(1);
     $self->set_errstr($s);
+    $self->set_status('error');
 }
 
 sub _set_params {
@@ -685,6 +680,22 @@ sub check {
     }
     return ($quality, $type);
 }
+
+sub headers_ok {
+    my ($self, $headers_r) = @_;
+
+    my $status = $headers_r->{Status};
+    if ($status !~ /^2/) {
+        D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+        $self->err("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+
+        return;
+    }
+
+    return 1;
+}
+
+
 
 
 __END__

@@ -283,9 +283,6 @@ sub start_download_sync {
 sub start_download_async {
     my $did = shift // die;
 
-    #used ?
-    my $mid = shift // die;
-
     my $url = shift or die;
 
     my $output_dir = shift or die;
@@ -326,10 +323,9 @@ sub _start_download {
 
     my $do_async = $msg->{async};
 
-    my %dl_tracker = ();
-
-    my %md = ();
-    $dl_tracker{metadata} = \%md;
+    my $get;
+    my $errstr;
+    my $status;
 
     if ($do_async) {
         my $output_dir = $msg->{output_dir} or warn, return;
@@ -367,22 +363,16 @@ sub _start_download {
             is_tolerant_about_type => $itat,
         );
 
-        my $get = Fish::Youtube::Get->new(@init);
-        #my $ok = $get->get(\$Cancel_by_did{$did});
-my $cancel;
+        $get = Fish::Youtube::Get->new(@init);
+        # start
+        my $ok = $get->get;
 
-        my $done = '';
-        my $ok = $get->get(\$done, \$cancel);
         if (!$ok) {
-            $dl_tracker{errstr} = $get->errstr;
-            $dl_tracker{status} = 'error';
+            $errstr = $get->errstr;
+            $status = 'error';
         }
         else {
-            $dl_tracker{status} = 'started';
-            $dl_tracker{done_r} = \$done;
-
-            $md{size} = $get->size or warn;
-            $md{of} = $get->out_file or warn;
+            $status = 'started';
         }
     }
     else {
@@ -416,7 +406,7 @@ my $of;
         my $type = Fish::Youtube::Gtk::list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
 
         if (! $type) {
-            $dl_tracker{status} = 'cancelled';
+            $status = 'cancelled';
         }
         # else ok
     }
@@ -424,7 +414,7 @@ my $of;
     #if (-r $of) {
     #my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
          
-    return \%dl_tracker;
+    return $get, $status, $errstr;
 }
 
 

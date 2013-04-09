@@ -647,16 +647,13 @@ sub row_activated {
 }
 
 sub start_download {
-    my ($u, $t, $mid) = @_;
+    my ($u, $title, $mid) = @_;
 
     # already downloaded /-ing
     return if $D->exists($mid);
     
     $G->last_did_inc;
     my $did = $G->last_did;
-
-
-    #'http://r1---sn-5hn7ym7r.c.youtube.com/videoplayback?upn=jcgKgOADZhs&ip=145.53.6.142&key=yt1&ipbits=8&ratebypass=yes&fexp=905607%2C923120%2C914091%2C932000%2C932004%2C906383%2C902000%2C901208%2C919512%2C929903%2C925714%2C931202%2C900821%2C900823%2C931203%2C931401%2C906090%2C909419%2C908529%2C930807%2C919373%2C930803%2C906836%2C920201%2C929602%2C930101%2C926403%2C900824%2C910223&source=youtube&sparams=cp%2Cid%2Cip%2Cipbits%2Citag%2Cratebypass%2Csource%2Cupn%2Cexpire&id=714c5a5134d9cccc&mv=m&ms=au&mt=1365440485&nh=EAE&itag=18&cp=U0hVSlRRUV9KSkNONV9MS1VKOm5jT0c0T1RRMlhV&sver=3&expire=1365463950&newshard=yes&signature=731407A1D1FB1F40816C6DAECA67D466ADEE65F9.0ECEDABCEA92419782944D908A62C343A977E22F';
 
     if (! $Output_dir) {
         # remove_all doesn't seem to work.
@@ -671,7 +668,7 @@ sub start_download {
     my $box;
 
     my $wait_s = "Trying to get '";
-    $wait_s .= $t ? $t : 'manual download';
+    $wait_s .= $title ? $title : 'manual download';
     $wait_s .= "' ";
 
     $G->last_mid_in_statusbar($mid);
@@ -700,7 +697,7 @@ sub start_download {
     # if any prompting, we can't know outfile. 
     # also if async, we can't know it.
     # always overwrite if async.
-    if (! $t) {
+    if (! $title) {
         $manual = 1;
     } 
 
@@ -725,38 +722,35 @@ sub start_download {
         $first = 0;
     }
 
-    my $dl_tracker;
+    my $get;
+    my $status;
+    my $errstr;
 
     if ($async) {
-        $dl_tracker = main::start_download_async($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat);
+        ($get, $status, $errstr) = main::start_download_async($did, $u, $Output_dir, $prefq, $preft, $itaq, $itat);
     }
     else {
 
 warn 'not implemented';
 
-        $dl_tracker = main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
+        main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
     }
 
-    $dl_tracker or warn, return;
-
-    if ($dl_tracker->{status} eq 'error') {
-        my $e;
+    if ($status eq 'error') {
         war "Download thread reported error.";
-        warn $e if $e = $dl_tracker->{errstr};
+        warn $errstr if $errstr;
 
-        movie_panic_while_waiting($mid, $e);
+        movie_panic_while_waiting($mid, $errstr);
 
         return;
     }
 
-    elsif ($dl_tracker->{cancelled}) {
+    elsif ($status eq 'cancelled') {
         D2 'cancelled.';
         return;
     }
 
     $G->is_waiting->{$mid} = $wait_s;
-
-    my $md = $dl_tracker->{metadata};
 
     my $size;
 
@@ -764,6 +758,7 @@ warn 'not implemented';
 
     if ($async) {
         # wait for md to get filled.
+        # get_size in Get is currently sync, but could be good to keep this.
         my $i = 0;
         my $to = 200;
         timeout $to, sub {
@@ -775,14 +770,12 @@ warn 'not implemented';
                 return;
             }
 
-            if ($size = $md->{size}) {
+            if ($size = $get->size) {
 
                 D2 'got size', $size, 'did', $did;
 
-                my $of = $md->{of} or warn, return;
-
                 timeout 500, sub {
-                    watch_download($did, $mid, $t, $dl_tracker, $of, $size, $manual) 
+                    watch_download($did, $mid, $title, $get, $size, $manual) 
                 };
 
                 return 0;
@@ -792,42 +785,46 @@ warn 'not implemented';
         };
     }
     else {
-        my $size = $md->{size} or warn, return;
-        my $of = $md->{of} or warn, return;
+warn 'not implemented';
+        #my $size = $md->{size} or warn, return;
+        #my $of = $md->{of} or warn, return;
 
-        timeout 500, sub { 
-            watch_download($did, $mid, $t, $dl_tracker, $of, $size, $manual) 
-        };
+        #timeout 500, sub { 
+        #    watch_download($did, $mid, $title, $dl_tracker, $of, $size, $manual) 
+        #};
     }
-    # / child wait
 }
 
 sub watch_download {
-    my ($did, $mid, $t, $dl_tracker, $of, $size, $manual) = @_;
+    my ($did, $mid, $title, $get, $size, $manual) = @_;
 
-    if ($dl_tracker->{status} eq 'error') {
-        war "Download thread reported error.";
-        my $e;
-        warn $e if $e = $dl_tracker->{errstr};
-        movie_panic_while_waiting($mid, $e);
-        return 0;
-    }
+    # check did ??
+
+#    if ($dl_tracker->{status} eq 'error') {
+#        war "Download thread reported error.";
+#        my $e;
+#        warn $e if $e = $dl_tracker->{errstr};
+#        movie_panic_while_waiting($mid, $e);
+#        return 0;
+#    }
+    
+    my $of = $get->out_file or warn;
 
     D2 'got md', 'name', $of, 'size', $size;
 
     # got it, add download and kill timeout
 
     if ($manual) {
-        $t = basename $of;
-        $t =~ s/\.\w+$//;
+        $title = basename $of;
+        $title =~ s/\.\w+$//;
     }
 
-    add_download($did, $mid, $t, $size, $of);
+    add_download($did, $mid, $get, $title, $size, $of);
 
     my $cur_size;
 
     timeout 200, sub { 
-        return file_progress({ simulate => 0}, $mid, $of, \$cur_size, $size, $dl_tracker);
+        return file_progress({ simulate => 0}, $mid, $get, $of, \$cur_size, $size);
     };
     
     timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
@@ -851,29 +848,6 @@ sub auto_start_watching {
     return 1;
 }
 
-=head
-sub get_metadata {
-    my ($file) = @_;
-
-    my ($s, $code) = sys qq, cat 2>/dev/null $file,, 0;
-    
-    my ($name, $size);
-
-    if ($s =~ /(.+)\n(\d+)/) {
-
-        # got name and size from forked proc. can officially start download.
-       
-        ($name, $size) = ($1, $2);
-        return ($name, $size);
-    }
-    else {
-        D2 'no meta';
-    }
-
-    return;
-}
-=cut
-
 sub file_progress {
     my $simulate;
     if (ref $_[0] eq 'HASH') {
@@ -882,37 +856,40 @@ sub file_progress {
     }
 
     # cur_size_r is watched from outside.
-    my ($mid, $file, $cur_size_r, $size, $dl_tracker) = @_;
+    my ($mid, $get, $file, $cur_size_r, $size) = @_;
 
     my $s = stat $file or warn(), return 1;
 
     my $d = $D->get($mid);
 
-    my $done;
     my $delete;
 
     my $cs = $s->size;
     $$cur_size_r = $cs unless $cs == -1;
 
-    my $done_r = $dl_tracker->{done_r};
+    my $status = $get->{status};
+    my $done;
 
-    if ($dl_tracker->{status} eq 'error') {
+    if ($status eq 'error') {
         my $e;
-        war $e if $e = $dl_tracker->{errstr};
+        war $e if $e = $get->errstr;
         movie_panic($mid, $e);
         return 0;
     }
-    elsif ($$done_r) {
+    elsif ($status eq 'done') {
         $done = 1;
         download_finished($mid);
         warn unless $$cur_size_r == $size;
     }
-    elsif ($dl_tracker->{status} eq 'cancelled') {
+    elsif ($status eq 'cancelled') {
         D2 'cancelled!';
-        $delete = 1;
+        #redraw();
+        #remove_download_entry($mid);
+        return 0;
     }
 
     # download object destroyed for some reason
+
     if (! $d and ! $simulate) {
         movie_panic($mid);
         return 0;
@@ -920,12 +897,7 @@ sub file_progress {
 
     $d->prog($$cur_size_r);
 
-    if ($delete) {
-        #redraw();
-        #remove_download_entry($mid);
-        return 0;
-    }
-    elsif ($done) {
+    if ($done) {
         return 0;
     }
     else {
@@ -939,7 +911,7 @@ sub file_progress {
 
 sub add_download {
 
-    my ($did, $mid, $title, $size, $of) = @_;
+    my ($did, $mid, $get, $title, $size, $of) = @_;
 
     D2 'ad', 'did', $did;
 
@@ -952,6 +924,7 @@ sub add_download {
         idx => $G->last_idx,
         did => $did,
         mid => $mid,
+        get => $get,
         size => $size,
         title => $title,
         of => $of,
@@ -969,6 +942,8 @@ sub poll_downloads {
     my $idx = $db{idx};
     my $of = $db{of};
 
+    my $get = $db{get};
+
     my $pixmap = make_pixmap();
     clear_pixmap($pixmap);
 
@@ -982,12 +957,15 @@ sub poll_downloads {
         # for drawing pixmaps
         idx     => $idx,
 
+        # Get object
+        getter => $get,
+
         # totally unique for each download, for communicating with threads
         did => $did,
 
         size    => $size,
         title   => $title,
-        #of      => $of,
+   
         pixmap  => $pixmap,
     );
 
@@ -1332,17 +1310,9 @@ sub cancel_download {
 
     my $d = $D->get($mid) or warn, return;
 
-    my $did = $d->did;
+    my $get = $d->getter;
 
-    # XX
-    #{
-        #lock %Fish::Youtube::DownloadThreads::Status_by_did;
-        #$Fish::Youtube::DownloadThreads::Status_by_did{$did}->{status} = 'cancelled';
-        #}
-        #{
-        #lock %Fish::Youtube::DownloadThreads::Cancel_by_did;
-        #$Fish::Youtube::DownloadThreads::Cancel_by_did{$did} = 1;
-        #}
+    $get->cancel;
 
 }
 
@@ -1665,6 +1635,9 @@ sub set_cursor {
 }
 
 sub simulate {
+
+return;
+
     my $SIM_TMP = main::make_tmp_dir();
     my $sim_idx = 0;
     set_pane_position($G->width / 2);

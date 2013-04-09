@@ -42,6 +42,12 @@ has did => (
     isa => 'Num',
 );
 
+has getter => (
+    is => 'ro',
+    isa => "Fish::Youtube::Get",
+);
+
+
 has size => (
     is  => 'ro',
     isa => 'Int',
