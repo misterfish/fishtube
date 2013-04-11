@@ -45,11 +45,6 @@ my $D = 'Fish::Youtube::Download';
 use constant STATUS_OD => 100;
 use constant STATUS_MISC => 101;
 
-sub timeout;
-sub sig;
-sub set_cursor;
-sub normal_cursor;
-
 sub err;
 sub error;
 sub war;
@@ -190,23 +185,6 @@ my $G = o(
     '%download_buf' => {},
     # mid => text
     is_waiting => {},
-
-    # mid => [
-    # 0 cur_size
-    # 1 '/'
-    # ]
-    size_label => {},
-
-    #info_box => {},
-
-    # by mid, cancel and delete buttons
-    #controls => {},
-
-    # to avoid infinite loops of enter/exit events when there's an inner
-    # box inside an outer box. this is because an enter/exit on the inner
-    # box triggers an exit/enter on the outer box. 
-    #controls_lock_leave => {},
-    #controls_lock_enter => {},
 
     # also temporarily block all events after one event has fired. this is
     # so that entering the inner box doesn't trigger a leave on the outer
@@ -608,22 +586,6 @@ sub tree_num_children {
     return $treeview->get_model->iter_n_children;
 }
 
-
-sub timeout {
-    my ($time, $sub) = @_;
-
-    # Timeouts are called outside of the main lock loop and so you need to
-    # put enter/leave around them.
-
-    my $new = sub {
-        Gtk2::Gdk::Threads->enter;
-        # always scalar -- return is 0 or 1
-        my $r = $sub->(@_);
-        Gtk2::Gdk::Threads->leave;
-        $r;
-    };
-    Glib::Timeout->add($time, $new);
-}
 
 # 0-255
 sub get_color {
@@ -1163,45 +1125,8 @@ sub download_finished {
     my ($mid) = @_;
     download_stopped($mid);
 
-    # hide YY
-    #$_->hide for $G->controls->{$mid}, list $G->size_label->{$mid};
-
     #$_->destroy, undef $_ for $G->controls->{$mid}, list $G->size_label->{$mid};
     $G->download_successful->{$mid} = 1;
-
-
-=head
-
-YY
-
-    my $i = $G->info_box->{$mid};
-
-    sig $i, 'enter-notify-event', sub {
-
-        my ($self, $event) = @_;
-
-        # only interested if entered from outside (not from inner boxes)
-        return if $event->detail eq 'inferior';
-
-        #my $c = $G->controls->{$mid} or warn, return;
-        my $c = $G->controls->{$mid} or warn, return;
-
-        $c->show;
-    };
-
-    sig $i, 'leave-notify-event', sub {
-        my ($self, $event) = @_;
-
-        # only interested if leaving towards outside (not towards inner
-        # boxes)
-        my $detail = $event->detail;
-        return if $detail eq 'inferior';
-
-        my $c = $G->controls->{$mid} or warn, return;
-        $c->hide;
-    };
-=cut
-
 
 }
 
@@ -1526,23 +1451,6 @@ sub set_output_dir {
     });
 }
 
-sub set_cursor_timeout {
-    shift if $_[0] eq __PACKAGE__;
-    my ($widget, $curs) = @_;
-    timeout(50, sub { 
-        return ! set_cursor($widget, $curs) 
-    } );
-}
-
-sub set_cursor {
-    my ($widget, $curs) = @_;
-    if (my $w = $widget->window) {
-        $w->set_cursor(Gtk2::Gdk::Cursor->new($curs));
-        return 1;
-    }
-    return 0;
-}
-
 sub simulate {
 
 return;
@@ -1785,16 +1693,6 @@ sub set_pref_labels {
     my $preft = $G->types->[$G->preferred_type];
     $W_lb->pq->set_label("$q $prefq", { size => 'small' });
     $W_lb->pt->set_label("$t $preft", { size => 'small' });
-}
-
-sub sig {
-    my ($w, $sig, $sub) = @_;
-    $w->signal_connect($sig, $sub);
-}
-
-sub normal_cursor {
-    my ($w) = shift;
-    set_cursor $w, 'left-ptr';
 }
 
 

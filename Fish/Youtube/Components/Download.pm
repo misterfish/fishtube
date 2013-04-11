@@ -176,7 +176,7 @@ sub BUILD {
 
     $G->update_scroll_area(+1);
 
-    $G->set_cursor_timeout($self->container, 'hand2');
+    set_cursor_timeout $self->container, 'hand2';
 }
 
 # Called by Download::make_pixmaps
@@ -234,10 +234,43 @@ D 'setting!', 'cur_size', $cur_size;
 
         $G->draw_surface_on_pixmap($pixmap, $surface);
 
+        $self->finished;
+
         return 0;
     }
 
     return 1;
+}
+
+sub finished {
+    my ($self) = @_;
+
+    # Hide controls but show with mouseover.
+    
+    my $i = $self->container;
+    my $c = $self->_eb_controls;
+    $c->hide;
+
+    sig $i, 'enter-notify-event', sub {
+
+        my ($self, $event) = @_;
+
+        # only interested if entered from outside (not from inner boxes)
+        return if $event->detail eq 'inferior';
+
+        $c->show;
+    };
+
+    sig $i, 'leave-notify-event', sub {
+        my ($self, $event) = @_;
+
+        # only interested if leaving towards outside (not towards inner
+        # boxes)
+        my $detail = $event->detail;
+        return if $detail eq 'inferior';
+
+        $c->hide;
+    };
 }
 
     #$_->hide for $G->controls->{$mid}, list $G->size_label->{$mid};

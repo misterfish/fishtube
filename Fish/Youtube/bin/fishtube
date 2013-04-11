@@ -43,10 +43,6 @@ use Fish::Youtube::Gtk;
 use Fish::Youtube::History;
 use Fish::Youtube::Get;
 
-use constant THREADING_DOWNLOADS => 0;
-
-use if THREADING_DOWNLOADS, 'Fish::Youtube::DownloadThreads';
-
 sub error;
 sub war;
 sub DT;
@@ -71,13 +67,13 @@ our ($opt_h, $opt_p, $opt_d, $opt_o);
 our $opt_Z;
 getopts('hp:do:Z');
 
-THREADING_DOWNLOADS and $Fish::Youtube::DownloadThreads::Debug_threads = $opt_Z;
-
 my $debug;
 if ($opt_d) {
     $debug = 1;
     $Fish::Youtube::Utility::LOG_LEVEL++;
 }
+
+$SIG{__WARN__} = $SIG{__DIE__} = \&Carp::confess;
 
 $| = 1;
 
@@ -426,11 +422,6 @@ sub process_running {
         $_->{pid} == $pid 
     } @$t;
     return @children ? 1 : 0;
-}
-
-sub timeout {
-    my ($time, $sub) = @_;
-    Glib::Timeout->add($time, $sub );
 }
 
 sub watch_movie {

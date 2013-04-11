@@ -24,6 +24,8 @@ BEGIN {
         randint is_int field is_num
         nice_bytes nice_bytes_join o
         unshift_r shift_r pop_r push_r
+
+        sig timeout set_cursor normal_cursor set_cursor_timeout
     /;
 }
 
@@ -33,6 +35,8 @@ use strict;
 use warnings;
 
 use utf8;
+
+use Gtk2;
 
 use Term::ANSIColor;
 use Carp 'confess';
@@ -687,5 +691,52 @@ sub unshift_r { unshift @{shift @_}, @_ };
 sub push_r { push @{shift @_}, @_ };
 sub shift_r { shift @{shift @_} };
 sub pop_r { pop @{shift @_} };
+
+## GTK specific
+sub sig {
+    my ($w, $sig, $sub) = @_;
+    $w->signal_connect($sig, $sub);
+}
+
+sub timeout {
+    my ($time, $sub) = @_;
+
+    # Timeouts are called outside of the main lock loop and so you need to
+    # put enter/leave around them.
+
+    my $new = sub {
+        Gtk2::Gdk::Threads->enter;
+        # always scalar -- return is 0 or 1
+        my $r = $sub->(@_);
+        Gtk2::Gdk::Threads->leave;
+        $r;
+    };
+    Glib::Timeout->add($time, $new);
+}
+
+sub set_cursor_timeout {
+    shift if $_[0] eq __PACKAGE__;
+    my ($widget, $curs) = @_;
+    timeout(50, sub { 
+        return ! set_cursor($widget, $curs) 
+    } );
+}
+
+
+sub set_cursor {
+
+    my ($widget, $curs) = @_;
+    if (my $w = $widget->window) {
+        $w->set_cursor(Gtk2::Gdk::Cursor->new($curs));
+        return 1;
+    }
+    return 0;
+}
+
+sub normal_cursor {
+    my ($w) = shift;
+    set_cursor($w, 'left-ptr');
+}
+
 
 1;
