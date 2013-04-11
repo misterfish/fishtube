@@ -36,10 +36,10 @@ has idx => (
 );
 
 # Totally unique, unlike mid. For communicating with threads.
-has did => (
-    is => 'ro',
-    isa => 'Num',
-);
+#has did => (
+#is => 'ro',
+#isa => 'Num',
+#);
 
 has getter => (
     is => 'ro',
@@ -52,9 +52,8 @@ has component => (
 );
 
 has size => (
-    is  => 'ro',
+    is  => 'rw',
     isa => 'Int',
-    required => 1,
 );
 
 has title => (

@@ -182,9 +182,11 @@ my $G = o(
 
     # two ways to use hashes, bit different possibilities
     '%img' => {},
-    '%download_buf' => {},
+    #'%download_buf' => {},
     # mid => text
-    is_waiting => {},
+    #is_waiting => {},
+
+    download_comp => {},
 
     # also temporarily block all events after one event has fired. this is
     # so that entering the inner box doesn't trigger a leave on the outer
@@ -201,7 +203,7 @@ my $G = o(
     # auto add methods last_xxx_inc, last_xxx_dec.
     '+-last_mid' => -1,
     '+-last_idx' => -1,
-    '+-last_did' => -1,
+    #'+-last_did' => -1,
 
     # medium
     preferred_quality => 1,
@@ -486,7 +488,7 @@ my $SIMULATE = 0;
     };
     timeout 100, $chain;
 
-    timeout 100, \&poll_downloads;
+    #timeout 100, \&poll_downloads;
 
     # make Y, R, etc. no-ops
     disable_colors();
@@ -620,8 +622,8 @@ sub start_download {
     # already downloaded /-ing
     return if $D->exists($mid);
     
-    $G->last_did_inc;
-    my $did = $G->last_did;
+    #$G->last_did_inc;
+    #my $did = $G->last_did;
 
     if (! $Output_dir) {
         # remove_all doesn't seem to work.
@@ -633,14 +635,28 @@ sub start_download {
     $G->download_successful->{$mid} = 0;
     $G->auto_launched->{$mid} = 0;
 
-    my $box;
+    my $download_comp = Fish::Youtube::Components::Download->new(
+        title => $title,
+        mid => $mid,
+    );
+    $G->download_comp->{$mid} = $download_comp;
+
+    # main eventbox for comp
+    my $download_comp_container = $download_comp->container;
+
+    my $height_box = $download_comp->height;
+
+    $G->last_idx_inc;
+    my $idx = $G->last_idx;
+
+    $W_ly->right->put($download_comp_container, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
 
     my $wait_s = "Trying to get '";
     $wait_s .= $title ? $title : 'manual download';
     $wait_s .= "' ";
 
-    $G->last_mid_in_statusbar($mid);
-    $W_sb->main->push($mid, $wait_s);
+    #$G->last_mid_in_statusbar($mid);
+    #$W_sb->main->push($mid, $wait_s);
 
     state $first = 1;
 
@@ -672,13 +688,14 @@ sub start_download {
     # add puntjes to waiting msg
     timeout 300, sub {
         my $text;
-        return 0 unless $G->last_mid_in_statusbar == $mid;
-        return 0 unless $text = $G->is_waiting->{$mid};
+        #return 0 unless $G->last_mid_in_statusbar == $mid;
+        #return 0 unless $text = $G->is_waiting->{$mid};
 
         $text .= '.';
-        $W_sb->main->pop($mid);
-        $W_sb->main->push($mid, $text);
-        $G->is_waiting->{$mid} = $text;
+        # YY
+        #$W_sb->main->pop($mid);
+        #$W_sb->main->push($mid, $text);
+        #$G->is_waiting->{$mid} = $text;
         1;
     };
 
@@ -695,13 +712,13 @@ sub start_download {
     my $errstr;
 
     if ($async) {
-        ($get, $status, $errstr) = main::start_download_async($did, $u, $Output_dir, $prefq, $preft, $itaq, $itat);
+        ($get, $status, $errstr) = main::start_download_async($u, $Output_dir, $prefq, $preft, $itaq, $itat);
     }
     else {
 
 warn 'not implemented';
 
-        main::start_download_sync($did, $mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
+        main::start_download_sync($mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
     }
 
     if ($status eq 'error') {
@@ -710,15 +727,40 @@ warn 'not implemented';
 
         movie_panic_while_waiting($mid, $errstr);
 
+        # destroy XX
         return;
     }
 
     elsif ($status eq 'cancelled') {
         D2 'cancelled.';
+        # destroy XX
         return;
     }
 
-    $G->is_waiting->{$mid} = $wait_s;
+    my $d = $D->new(
+        # main id = mid
+        id      => $mid,
+        # id of drawn component in list. will change when something is deleted.
+        idx     => $idx,
+
+        component => $download_comp,
+
+        # Get object
+        getter => $get,
+
+        # totally unique for each download, for communicating with threads
+        #did => $did,
+
+        title   => $title,
+    );
+
+
+
+
+
+
+
+    #$G->is_waiting->{$mid} = $wait_s;
 
     my $size;
 
@@ -740,11 +782,11 @@ warn 'not implemented';
 
             if ($size = $get->size) {
 
-                D2 'got size', $size, 'did', $did;
+                D2 'got size', $size;
 
-                timeout 500, sub {
-                    watch_download($did, $mid, $title, $get, $size, $manual) 
-                };
+                #timeout 500, sub {
+                    watch_download($mid, $title, $get, $size, $manual) ;
+                    #};
 
                 return 0;
             }
@@ -763,10 +805,10 @@ warn 'not implemented';
     }
 }
 
-sub watch_download {
-    my ($did, $mid, $title, $get, $size, $manual) = @_;
+# Download really started. Update component, watch size, wait for finish.
 
-    # check did ??
+sub watch_download {
+    my ($mid, $title, $get, $size, $manual) = @_;
 
 #    if ($dl_tracker->{status} eq 'error') {
 #        war "Download thread reported error.";
@@ -780,18 +822,73 @@ sub watch_download {
 
     D2 'got md', 'name', $of, 'size', $size;
 
-    # got it, add download and kill timeout
-
     if ($manual) {
         $title = basename $of;
         $title =~ s/\.\w+$//;
     }
 
-    queue_download($did, $mid, $get, $title, $size, $of);
+    my $download_comp = $G->download_comp->{$mid} or warn, return;
+    $download_comp->started(
+        file_size => $size,
+        cb_watch_movie => sub {
+            main::watch_movie($of);
+        },
+    );
+
+    my $d = $D->get($mid) or warn, return;
+
+    $d->size($size);
+
+    my $size_set = 0;
+
+    # check size, update download status, update component.
+    timeout(50, sub {
+
+        $d->is_drawing or do {
+            D2 'stopping animation: is_drawing is 0';
+            return 0;
+        };
+
+        # normal ??
+        my $d = $D->get($mid) or do { 
+            #D2 'stopping animation: download obj destroyed';
+            warn 'stopping animation: download obj destroyed';
+            return 0;
+        };
+        state $last = -1;
+
+        if (!$size_set) {
+            $size // return 1;
+            $download_comp->file_size($size);
+            $size_set = 1;
+        }
+
+        my $err;
+
+        my $p = $d->prog;
+        if (not defined $p) {
+            D2 "p not defined (yet)";
+            return 1;
+        }
+
+        if ($download_comp->update($p)) {
+            return 1;
+        }
+        else {
+            # manually call one last redraw
+            redraw();
+            $d->stopped_drawing;
+            return 0;
+        }
+
+    });
 
     my $cur_size;
 
+    # update $cur_size and also set ->prog of download object. cur_size a
+    # bit useless? XX
     timeout 200, sub { 
+        # 
         return file_progress({ simulate => 0}, $mid, $get, $of, \$cur_size, $size);
     };
     
@@ -875,130 +972,6 @@ sub file_progress {
 
     # still downloading
     return 1;
-}
-
-sub queue_download {
-
-    my ($did, $mid, $get, $title, $size, $of) = @_;
-
-    D2 'ad', 'did', $did;
-
-    # downloads added faster than poll_downloads can grab them (shouldn't
-    # happen)
-    warn "download buf not empty" if $G->download_buf;
-
-    $G->last_idx_inc;
-    $G->download_buf({
-        idx => $G->last_idx,
-        did => $did,
-        mid => $mid,
-        get => $get,
-        size => $size,
-        title => $title,
-        of => $of,
-    });
-}
-
-sub poll_downloads {
-
-    my %db = $G->download_buf or return 1;
-
-    add_download(\%db);
-}
-
-sub add_download {
-    my $db = shift;
-
-    # start new download
-
-    # assume all ok.
-    my $size = $db->{size};
-    my $title = $db->{title};
-    my $idx = $db->{idx};
-    my $of = $db->{of};
-    my $get = $db->{get};
-    my $mid = $db->{mid};
-    my $did = $db->{did};
-
-    my $download_comp = Fish::Youtube::Components::Download->new(
-        file_size => $size,
-        title => $title,
-        cb_watch_movie => sub {
-            main::watch_movie($of);
-        },
-        mid => $mid,
-    );
-
-    # main eventbox for comp
-    my $download_comp_container = $download_comp->container;
-
-    my $height_box = $download_comp->height;
-
-    $W_ly->right->put($download_comp_container, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
-
-    my $d = $D->new(
-        # main id = mid
-        id      => $mid,
-        # id of drawn component in list. will change when something is deleted.
-        idx     => $idx,
-
-        component => $download_comp,
-
-        # Get object
-        getter => $get,
-
-        # totally unique for each download, for communicating with threads
-        did => $did,
-
-        size    => $size,
-        title   => $title,
-    );
-
-    $G->download_buf({});
-
-    my $size_set = 0;
-
-    # check size, update download status, update pixmap
-    timeout(50, sub {
-
-        my $d = $D->get($mid) or do { 
-            D2 'stopping animation: download obj destroyed';
-            return 0;
-        };
-        $d->is_drawing or do {
-            D2 'stopping animation: is_drawing is 0';
-            return 0;
-        };
-
-        state $last = -1;
-
-        if (!$size_set) {
-            $size // return 1;
-            $download_comp->file_size($size);
-            $size_set = 1;
-        }
-
-        my $err;
-
-        my $p = $d->prog;
-        if (not defined $p) {
-            D2 "p not defined (yet)";
-            return 1;
-        }
-
-        if ($download_comp->update($p)) {
-            return 1;
-        }
-        else {
-            # manually call one last redraw
-            redraw();
-            $d->stopped_drawing;
-            return 0;
-        }
-
-    });
-
-    1;
 }
 
 # main window
@@ -1305,11 +1278,11 @@ sub inject_movie_dialog {
     return $response;
 }
 
-sub remove_wait_label {
-    my ($mid) = @_;
-    $G->is_waiting->{$mid} = 0;
-    $W_sb->main->pop($mid);
-}
+#sub remove_wait_label {
+#    my ($mid) = @_;
+#    $G->is_waiting->{$mid} = 0;
+#    $W_sb->main->pop($mid);
+#}
 
 sub movie_panic_while_waiting {
     my ($mid, $errstr) = @_;

@@ -26,11 +26,15 @@ has container => (
     writer => '_set_container',
 );
 
-# unique enough? XX
 has mid => (
     is  => 'ro',
     isa => 'Int',
 );
+
+## The id for placing the component in the list. Changes if stuff is deleted.
+## Matches 
+#has idx => (
+#);
 
 has _label_cur_size => (
     is  => 'rw',
@@ -45,6 +49,11 @@ has _label_slash => (
 has file_size => (
     is  => 'rw',
     isa => 'Int',
+);
+
+has cb_watch_movie => (
+    is  => 'rw',
+    isa => 'CodeRef',
 );
 
 has title => (
@@ -73,10 +82,29 @@ sub BUILD {
     );
     $self->_anarchy($anarchy);
 
+    my $eb = Gtk2::EventBox->new;
+    $eb->modify_bg('normal', $G->col->white);
+
+    $self->_set_container($eb);
+}
+
+sub started {
+
+    my ($self, @opts) = @_;
+    my %opts = @opts;
+
+    my $fs = $opts{file_size} or warn, return;
+    my $cb = $opts{cb_watch_movie} or warn, return;
+
+    $self->file_size($fs);
+    $self->cb_watch_movie($cb);
+
     my $Col = $G->col;
 
     my $vb = Gtk2::VBox->new;
     $vb->modify_bg('normal', $Col->white);
+
+    $self->container->add($vb);
 
     my $c1 = $Col->black;
     my $c2 = $G->get_color(100,100,33,255);
@@ -157,26 +185,17 @@ sub BUILD {
         $self->_eb_controls($eb);
     }
 
-    {
-        # Main container.
-        my $eb = Gtk2::EventBox->new;
-        $eb->modify_bg('normal', $Col->white);
-
-        $self->_set_container($eb);
-
-        $eb->add($vb);
-        $eb->signal_connect('button-press-event', sub {
-            $self->cb_watch_movie->();
-        });
-
-        $eb->show_all;
-    }
+    $self->container->signal_connect('button-press-event', sub {
+        $self->cb_watch_movie->();
+    });
 
     #remove_wait_label($mid);
 
     $G->update_scroll_area(+1);
 
     set_cursor_timeout $self->container, 'hand2';
+    
+    $self->container->show_all;
 }
 
 # Called by Download::make_pixmaps
