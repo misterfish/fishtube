@@ -15,6 +15,8 @@ use URI::Escape qw/ uri_unescape uri_escape /;
 use HTML::Entities qw/ decode_entities encode_entities /;
 use IO::File;
 
+use File::stat;
+
 use AnyEvent::HTTP;
 
 use Fish::Youtube::Utility;
@@ -57,6 +59,10 @@ has debug => (
     isa => 'Bool',
     default => 0,
 );
+
+# opt_f means try to continue, and otherwise overwrite.
+# Note that if the file has been fully downloaded it will be left alone,
+# even with force.
 
 has force => (
     is  => 'ro',
@@ -403,14 +409,46 @@ sub get_go {
 
     my $of = $self->out_file or warn, return;
 
-    if (-e $of and ! $self->force) {
-        my $pwd = sys_chomp 'pwd';
-        if ($of !~ /^\//) {
-            $of = "$pwd/$of";
+    my %request_hdr;
+    my $resume;
+    my $seek = 0;
+
+    my $size = $self->size or warn, return;
+
+    if (-e $of) {
+
+        my $cur_size = -s $of;
+
+        if ($self->force) {
+            if ($cur_size == $size) {
+                D2 'nothing to do!';
+                $self->set_status('done');
+                return 1;
+            }
+
+            if ($self->mode eq 'eventloop') {
+                # try to resume, otherwise overwrite.
+                my $s = stat $of;
+                if (my $size = $s->size) {
+                    $resume = 1;
+                    $seek = $size;
+                    $request_hdr{"if-unmodified-since"} = AnyEvent::HTTP::format_date($s->mtime);
+                    $request_hdr{"range"} = "bytes=$size-";
+                }
+            }
+            else {
+                # overwrite
+            }
         }
-        utf8::encode($of);
-        $self->err(Y $of, "exists");
-        return;
+        else {
+            my $pwd = sys_chomp 'pwd';
+            if ($of !~ /^\//) {
+                $of = "$pwd/$of";
+            }
+            utf8::encode($of);
+            $self->err(Y $of, "exists");
+            return;
+        }
     }
     sys qq, touch "$of" ,;
 
@@ -430,6 +468,26 @@ sub get_go {
         # Uses glib mainloop for 'async' get.
 
         http_get $url, 
+        
+            headers => \%request_hdr,
+
+            on_header => sub {
+                my ($hdr) = @_;
+                my $status = $hdr->{Status};
+                if ($resume and $status == 200) {
+                    # resume failed, should be 2xx
+                    truncate $fh, 0;
+                    # last 0 means abs
+                    sysseek $fh, 0, 0;
+                }
+                # err will get caught anyway
+                else {
+                    # last 0 means abs
+                    $seek != 0 and D2 'seeking to', $seek;
+                    sysseek $fh, $seek, 0;
+                }
+            },
+
             on_body => sub {
                 my ($buf, $headers_r) = @_;
 

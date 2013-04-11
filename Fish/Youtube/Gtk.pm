@@ -990,16 +990,17 @@ sub download_finished {
 
 }
 
-sub cancel_download {
+sub cancel_and_remove_download {
     shift if $_[0] eq __PACKAGE__;
     my ($mid) = @_;
 
-    my $d = $D->get($mid) or warn, return;
-
-    my $get = $d->getter;
-
-    download_stopped($mid);
-    $get->cancel;
+    # might have already been destroyed, like if download done.
+    if (my $d = $D->get($mid)) {
+        my $get = $d->getter;
+        download_stopped($mid);
+        $get->cancel;
+    }
+    remove_download_entry($mid);
 }
 
 sub remove_download_entry {

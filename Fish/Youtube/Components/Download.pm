@@ -187,13 +187,13 @@ sub started {
     my $mid = $self->mid;
 
     $eb_im_cancel->signal_connect('button-press-event', sub {
-        $G->cancel_download($mid);
+        $G->cancel_and_remove_download($mid);
         # 1 means don't propagate -- i.e., don't watch movie. (we are inside $eb)
         return 1;
     });
 
     $eb_im_delete->signal_connect('button-press-event', sub {
-        $G->cancel_download($mid);
+        $G->cancel_and_remove_download($mid);
 
         if (my $cb = $self->cb_delete_file) {
             $cb->();
