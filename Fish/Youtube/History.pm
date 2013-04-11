@@ -46,7 +46,7 @@ around BUILDARGS => sub {
     my %construct = @args;
 
     # allow undef in constructor
-    defined $construct{profile_dir} or delete $construct{profile_dir};
+    #defined $construct{profile_dir} or delete $construct{profile_dir};
 
     return $class->$orig(%construct);
 };
@@ -54,17 +54,6 @@ around BUILDARGS => sub {
 
 sub BUILD {
     my ($self, @args) = @_;
-    my $pd = $self->profile_dir;
-    # not doing this any more
-    if (! $pd) {
-        my $d = "$ENV{HOME}/.mozilla/firefox";
-        my $dir = sys_chomp qq, find "$d/" -maxdepth 1 -type d | tail -n 1 ,;
-        $dir or error "Can't find profile dir in", Y $d;
-        $pd = $dir;
-    }
-
-    $self->set_profile_dir($pd);
-
 }
 
 sub connect {

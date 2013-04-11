@@ -31,9 +31,10 @@ my $L = 'Fish::Gtk2::Label';
 use Fish::Youtube::Utility;
 
 use Fish::Youtube::Download;
-use Fish::Youtube::Components::Anarchy;
 
+use Fish::Youtube::Components::Anarchy;
 use Fish::Youtube::Components::Download;
+use Fish::Youtube::Components::MoviesList;
 
 use Fish::Youtube::Get;
 
@@ -90,8 +91,6 @@ my $PROP = .5;
 
 my $STATUS_PROP = .7;
 
-my $SCROLL_TO_BOTTOM_ON_ADD = 1;
-
 my $T = o(
     output_dir => "Output dir:",
     pq1  => "Quality:",
@@ -134,13 +133,6 @@ my $W_eb = o(
     od          => Gtk2::EventBox->new,
 );
 
-my $W_sl = o(
-    # is a Treeview
-    hist => Gtk2::SimpleList->new ( 
-        ''    => 'text',
-    ),
-);
-
 my $W_ly = o(
     right => Gtk2::Layout->new,
 );
@@ -159,8 +151,6 @@ my $W_tb = o(
     # row, col, homog
     options => Gtk2::Table->new(2,3,0),
 );
-
-my $Tree_data_magic;
 
 my $W;
 
@@ -190,11 +180,11 @@ my $G = o(
     #is_waiting => {},
 
     download_comp => {},
+    movies_list_comp => undef,
 
     auto_launched => {},
     download_successful => {},
 
-    movies_buf => [],
     # left pane
     movie_data => [],
 
@@ -294,15 +284,18 @@ sub init {
 
     $W_sw->left->set_policy('never', 'automatic');
 
-    $W_sl->hist->set_headers_visible(0);
+    {
+        my $movies_list = Fish::Youtube::Components::MoviesList->new(
+            profile_dir => main->profile_dir,
+            cb_row_activated => \&row_activated,
+        );
 
-    $W_sw->left->add($W_sl->hist);
+        my $tree = $movies_list->widget;
+        $G->movies_list_comp($movies_list);
+        $W_sw->left->add($tree);
+    }
+
     $W_sw->left->show_all;
-
-    # Tree_data_magic is tied
-    $Tree_data_magic = $W_sl->hist->{data};
-
-    $W_sl->hist->signal_connect (row_activated => sub { row_activated(@_) });
 
     set_pane_position($G->width);
 
@@ -457,10 +450,6 @@ sub init {
         1;
     };
 
-    timeout 1000, sub { 
-        update_movie_tree() ;
-    };
-
     my @init_chain;
 
     if ($profile_ask) {
@@ -492,106 +481,18 @@ sub inited {
     return $G->init;
 }
 
-sub set_buf {
-    my ($class, $_movies_buf) = @_;
-    #@Movies_buf: latest in front
-    unshift_r $G->movies_buf, $_ for reverse @$_movies_buf;
+sub get_mid {
+    $G->last_mid_inc;
+    $G->last_mid;
 }
-
-sub update_movie_tree {
-
-    state $last;
-    state $first = 1;
-
-    my $i = 0;
-
-    $G->movies_buf or return 1;
-
-    # single value of {} means History returned exactly 0 entries
-    {
-        my $m = shift_r $G->movies_buf;
-        if (! $m or ! %$m) {
-            @$Tree_data_magic = "No movies -- first browse somewhere in Firefox.";
-            return 1;
-        }
-        else {
-            unshift_r $G->movies_buf, $m;
-        }
-    }
-
-    if ($first) {
-        @$Tree_data_magic = ();
-        $first = 0;
-    }
-
-    #@Movies_buf: latest in front
-
-    my @m = list $G->movies_buf;
-    $G->movies_buf([]);
-
-    my @n;
-
-    if ($last) {
-        for (@m) {
-            my ($u, $t) = ($_->{url}, $_->{title});
-            $u eq $last and last;
-            push @n, $_;
-        }
-    }
-    else {
-        @n = @m;
-    }
-
-    my $tree = $W_sl->hist;
-    my $num_in_tree_before_add = tree_num_children($tree);
-
-    for (reverse @n) {
-        my ($u, $t) = ($_->{url}, $_->{title});
-
-        $t =~ s/ \s* - \s* youtube \s* $//xi;
-
-        $G->last_mid_inc;
-
-        #unshift @$Tree_data_magic, $t;
-        #unshift_r $G->movie_data, { mid => $G->last_mid, url => $u, title => $t};
-        push @$Tree_data_magic, $t;
-        push_r $G->movie_data, { mid => $G->last_mid, url => $u, title => $t};
-
-        # first in buffer is last
-        $last = $u if ++$i == @n;
-    }
-
-    if (@n and $SCROLL_TO_BOTTOM_ON_ADD) {
-        timeout 50, sub {
-            my $num_ch = tree_num_children($tree);
-            if (tree_num_children($tree) != $num_in_tree_before_add) {
-                # Does minimum necessary to scroll that row into view.
-                $tree->scroll_to_cell(
-                    Gtk2::TreePath->new_from_indices($num_ch - 1),
-                    # col
-                    undef,
-                );
-                #$W_sw->left->get_vscrollbar->set_value(0);
-            }
-
-            return 0;
-        };
-    }
-
-    1;
-}
-
-sub tree_num_children {
-    my $treeview = shift;
-    return $treeview->get_model->iter_n_children;
-}
-
 
 sub row_activated {
     my ($obj, $path, $column) = @_;
 
     my $row_idx = $path->get_indices;
-    my $d = $G->movie_data->[$row_idx] or die;
+
+    my $d = $G->movies_list_comp->get_data($row_idx) or die;
+
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
     my $ok = init_download($u, $t, $mid);
@@ -665,8 +566,8 @@ sub init_download {
 
     redraw();
 
-    # Want the redraws to happen now.
-    timeout 10, sub { 
+    # Want the redraws to happen immediately.
+    timeout 500, sub { 
         start_download($mid, $title, $u, $idx, $download_comp, $async, $prefq, $preft, $itaq, $itat);
         return 0;
     }

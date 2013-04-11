@@ -83,6 +83,8 @@ $opt_h and error $USAGE;
 my $Profile_dir;
 my $Output_dir;
 
+sub profile_dir { $Profile_dir }
+
 my $G = 'Fish::Youtube::Gtk';
 
 my $profile_ask;
@@ -178,7 +180,6 @@ sub set_profile_dir {
     $Profile_dir = $pd;
 }
 
-timeout( 1000, sub { poll_movies() } );
 
 
 # Output_dir can be undef
@@ -187,26 +188,6 @@ $G->init($Output_dir, { profile_ask => $profile_ask });
 exit;
 
 # # #
-
-sub poll_movies {
-    $Profile_dir or return 1;
-
-    my $hist = Fish::Youtube::History->new(
-        num_movies => 15,
-        # can be undef
-        profile_dir => $Profile_dir,
-    );
-
-    $hist->update;
-    my $m = $hist->movies;
-
-    # no undefined element
-    if (@$m and not grep { not defined } @$m) {
-        $G->set_buf($m);
-    }
-
-    return 1;
-}
 
 sub error {
     my @s = @_;
