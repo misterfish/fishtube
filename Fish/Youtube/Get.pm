@@ -429,9 +429,6 @@ sub get_go {
     if ($self->mode eq 'eventloop') {
         # Uses glib mainloop for 'async' get.
 
-my $i = 0;
-
-        D 'url', $url;
         http_get $url, 
             on_body => sub {
                 my ($buf, $headers_r) = @_;

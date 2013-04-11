@@ -90,7 +90,7 @@ my $PROP = .5;
 
 my $STATUS_PROP = .7;
 
-my $SCROLL_TO_TOP_ON_ADD = 1;
+my $SCROLL_TO_BOTTOM_ON_ADD = 1;
 
 my $T = o(
     output_dir => "Output dir:",
@@ -393,7 +393,12 @@ sub init {
     if (0) {
         my $b = Gtk2::Button->new('a');
         $b->signal_connect('clicked', sub {
-                # some debug
+
+        my $s = $W_sw->right->get_vscrollbar;
+        D 'doing';
+        $s->set_inverted(1);
+        $s->set_value(0);
+
         });
 
         $outer_box->add($b);
@@ -537,7 +542,8 @@ sub update_movie_tree {
         @n = @m;
     }
 
-    my $num_in_tree_before_add = tree_num_children($W_sl->hist);
+    my $tree = $W_sl->hist;
+    my $num_in_tree_before_add = tree_num_children($tree);
 
     for (reverse @n) {
         my ($u, $t) = ($_->{url}, $_->{title});
@@ -545,22 +551,30 @@ sub update_movie_tree {
         $t =~ s/ \s* - \s* youtube \s* $//xi;
 
         $G->last_mid_inc;
-        unshift @$Tree_data_magic, $t;
-        unshift_r $G->movie_data, { mid => $G->last_mid, url => $u, title => $t};
+
+        #unshift @$Tree_data_magic, $t;
+        #unshift_r $G->movie_data, { mid => $G->last_mid, url => $u, title => $t};
+        push @$Tree_data_magic, $t;
+        push_r $G->movie_data, { mid => $G->last_mid, url => $u, title => $t};
 
         # first in buffer is last
         $last = $u if ++$i == @n;
     }
 
-    if (@n and $SCROLL_TO_TOP_ON_ADD) {
-        # necessary? seems there could be a lag when adding to tied tree
-        # magic.
+    if (@n and $SCROLL_TO_BOTTOM_ON_ADD) {
         timeout 50, sub {
-            if (tree_num_children($W_sl->hist) != $num_in_tree_before_add) {
-                $W_sw->left->get_vscrollbar->set_value(0);
-                return 0;
+            my $num_ch = tree_num_children($tree);
+            if (tree_num_children($tree) != $num_in_tree_before_add) {
+                # Does minimum necessary to scroll that row into view.
+                $tree->scroll_to_cell(
+                    Gtk2::TreePath->new_from_indices($num_ch - 1),
+                    # col
+                    undef,
+                );
+                #$W_sw->left->get_vscrollbar->set_value(0);
             }
-            1;
+
+            return 0;
         };
     }
 
@@ -723,7 +737,6 @@ warn 'not implemented';
 
     if ($async) {
         # wait for md to get filled.
-        # get_size in Get is currently sync, but could be good to keep this.
         my $i = 0;
         my $to = 200;
         timeout $to, sub {
@@ -933,7 +946,7 @@ sub file_progress {
     }
 
     my $rate = $stats->{bytes} / $secs;
-    D 'Prog:', $$cur_size_r, '/', $size, nice_bytes_join($rate);
+    D2 'Prog:', $$cur_size_r, '/', $size, nice_bytes_join($rate);
 
     $d->prog($$cur_size_r);
 
@@ -1171,14 +1184,19 @@ sub mess {
     $d->destroy;
 }
 
+# Refers to right.
 # +1 when dl is added, -1 when removed
 sub update_scroll_area {
     shift if $_[0] eq __PACKAGE__;
     my $i = shift;
     $Scrollarea_height += ($HP + $RIGHT_SPACING_V) * $i;
     $Scrollarea_height = max $Scrollarea_height, 0;
+    
     # first num just needs to be big
     $W_ly->right->set_size(2000, $Scrollarea_height);
+
+    my $sb = $W_sw->right->get_vscrollbar or return;
+    $sb->set_value($Scrollarea_height);
 }
 
 sub set_pane_position {
@@ -1676,6 +1694,20 @@ sub get_image_button {
     return $eb;
 }
 
+sub get_geometry {
+    my ($w) = @_;
+    my $gdk_w = $w->get_window or warn, return;
+    my ($x, $y, $width, $height, $depth) = $gdk_w->get_geometry;
+    return {
+        x => $x,
+        y => $y,
+        width => $width,
+        w => $width,
+        height => $height,
+        h => $height,
+        depth => $depth,
+    };
+}
 
 1;
 
