@@ -452,22 +452,11 @@ sub watch_movie {
 
     my $pid = sync_exec qq, $MOVIE_PLAYER >/dev/null 2>&1 $o "$file" ,;
 
-    #if (my $pid = fork) {
-    #    D 'child pid', $pid;
-    #}
-    #else {
-    #    # not necessary
-    #    setsid();
-    #    # mplayer spawns a new shell and this ends up 'defunct', causing
-    #    # segfault on close?
-    #    exec qq, $MOVIE_PLAYER >/dev/null 2>&1 $o "$file" ,;
-    #}
 }
 
 sub set_output_dir {
     my ($od) = @_;
     $Output_dir = $od or die;
-    #D $od;
 }
 
 sub check_output_dir {

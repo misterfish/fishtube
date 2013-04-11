@@ -311,34 +311,94 @@ sub set {
     return 1;
 }
 
+sub get_start {
+    my ($self, $done_r, $cancel_r) = @_;
+
+    return $self->get_size(sub {
+        my ($size) = @_;
+
+        $self->size($size);
+        $self->set_status('started');
+
+        $self->get_go($done_r, $cancel_r);
+    });
+}
+
+# in eventloop case, return 1 if it seems to be going ok.
+# otherwise return the size.
 sub get_size {
-    my ($self) = @_;
+    # cb only for eventloop mode
+    my ($self, $cb) = @_;
+
     $self->error and warn, return;
     my $url = $self->_movie_url;
     $url or warn, return;
 
-    my $ua = $self->ua;
-
-    my $u_sub = substr($url, 0, 20) . "...";
-
     my $cl;
-    $ua->add_handler( response_header => sub {
-        my ( $res, $ua, $h ) = @_;
-        $cl = $res->header('content-length');
-    });
 
-    # get 1 byte
-    $ua->max_size(1);
+    if ($self->mode eq 'eventloop') {
+        http_head $url, sub {
+            my ($data, $headers_r) = @_;
 
-    $ua->get($url);
+            #for (keys %$headers_r) { D $_, $headers_r->{$_}; }
 
-    $self->d2('got cl', $cl);
+            $cl = $headers_r->{'content-length'};
 
-    return $cl;
+            #D 'got size', $cl;
+
+            return unless $self->headers_ok($headers_r) and $cl;
+
+            $cb or warn, return;
+            $cb->($cl);
+        };
+
+        return 1;
+    }
+    else {
+        my $ua = $self->ua;
+
+        my $u_sub = substr($url, 0, 20) . "...";
+
+        $ua->add_handler( response_header => sub {
+            my ( $res, $ua, $h ) = @_;
+            $cl = $res->header('content-length');
+        });
+
+        # get 1 byte
+        $ua->max_size(1);
+
+        $ua->get($url);
+
+        $self->d2('got cl', $cl);
+
+        return $cl;
+    }
+
 }
 
+# main wrapper for get.
 sub get {
     # cancel_r allows cancel while downloading
+    my ($self, $done_r, $cancel_r) = @_;
+
+    $self->error and warn, return;
+
+    if ($self->mode eq 'eventloop') {
+        # chains to get_go
+        return $self->get_start($done_r, $cancel_r);
+    }
+    else {
+        my $size = $self->get_size or warn, return;
+
+        $self->size($size);
+        $self->set_status('started');
+
+        return $self->get_go($done_r, $cancel_r);
+    }
+}
+
+sub get_go {
+
     my ($self, $done_r, $cancel_r) = @_;
 
     my $of = $self->out_file or warn, return;
@@ -354,7 +414,11 @@ sub get {
     }
     sys qq, touch "$of" ,;
 
+    # will die on error, has been checked above
+    my $fh = safeopen ">$of";
+
     $self->error and warn, return;
+
     my $url = $self->_movie_url;
     if (!$url) {
         warn;
@@ -362,18 +426,12 @@ sub get {
     }
 
     $self->d2('url', $url);
-
-    # will die on error, has been checked above
-    my $fh = safeopen ">$of";
-
-    my $size = $self->get_size or warn;
-    $self->size($size);
-
-    # Uses glib mainloop for 'async' get.
-
-    $self->set_status('started');
-
     if ($self->mode eq 'eventloop') {
+        # Uses glib mainloop for 'async' get.
+
+my $i = 0;
+
+        D 'url', $url;
         http_get $url, 
             on_body => sub {
                 my ($buf, $headers_r) = @_;

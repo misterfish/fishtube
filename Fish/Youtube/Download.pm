@@ -50,11 +50,6 @@ has size => (
     isa => 'Int',
 );
 
-#has file_deleted => (
-#    is  => 'rw',
-#    isa => 'Bool',
-#);
-
 has title => (
     is  => 'ro',
     isa => 'Str',

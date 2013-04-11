@@ -18,7 +18,7 @@ die "Glib::Object thread safety failed" unless Glib::Object->set_threadsafe (1);
 use AnyEvent;
 use AnyEvent::HTTP;
 
-use Time::HiRes 'sleep';
+use Time::HiRes 'time';
 
 use File::stat;
 use File::Basename;
@@ -57,6 +57,8 @@ my $IMAGES_DIR = $main::bin_dir . '/../images';
 -r $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "not readable";
 
 my $TIMEOUT_METADATA = 15000;
+#my $TIMEOUT_REDRAW = 50;
+my $TIMEOUT_REDRAW = 100;
 
 my %IMG = (
     add                 => 'add-12.png',
@@ -172,6 +174,9 @@ my $G = o(
     height => $HEIGHT,
     # calculated
     width => -1,
+
+    # for prog
+    stats => {},
 
     auto_start_watching => 1,
 
@@ -440,7 +445,7 @@ sub init {
         redraw();
     });
 
-    timeout 50, sub {
+    timeout $TIMEOUT_REDRAW, sub {
         if ($D->is_anything_drawing) {
             redraw();
         }
@@ -758,14 +763,6 @@ warn 'not implemented';
 sub download_started {
     my ($mid, $title, $get, $size, $manual) = @_;
 
-#    if ($dl_tracker->{status} eq 'error') {
-#        war "Download thread reported error.";
-#        my $e;
-#        warn $e if $e = $dl_tracker->{errstr};
-#        movie_panic_while_waiting($mid, $e);
-#        return 0;
-#    }
-    
     my $of = $get->out_file or warn;
 
     D2 'got md', 'name', $of, 'size', $size;
@@ -798,22 +795,13 @@ sub download_started {
     # check size, update download status, update component.
     timeout(50, sub {
 
+        # Don't check is_downloading here, will end too early.
+
         $d->is_drawing or do {
             D2 'stopping animation: is_drawing is 0';
             return 0;
         };
 
-        $d->is_downloading or do {
-            D2 'stopping animation: is_downloading is 0';
-            return 0;
-        };
-
-        # normal ??
-        my $d = $D->get($mid) or do { 
-            #D2 'stopping animation: download obj destroyed';
-            warn 'stopping animation: download obj destroyed';
-            return 0;
-        };
         state $last = -1;
 
         if (!$size_set) {
@@ -842,7 +830,7 @@ sub download_started {
 
     });
 
-    my $cur_size;
+    my $cur_size = 0;
 
     # update $cur_size and also set ->prog of download object. 
     # cur_size is a bit useless.
@@ -879,6 +867,7 @@ sub file_progress {
     }
 
     # cur_size_r is watched from outside.
+    # nicer if it's set externally to 0 first.
     my ($mid, $get, $file, $cur_size_r, $size) = @_;
 
     my $d = $D->get($mid);
@@ -902,8 +891,19 @@ sub file_progress {
 
     my $delete;
 
+    if ($$cur_size_r == 0) {
+        $G->stats->{$mid} = {
+            start_time => time,
+        };
+    } 
+
     my $cs = $s->size;
     $$cur_size_r = $cs unless $cs == -1;
+
+    my $stats = $G->stats->{$mid};
+    $stats->{bytes} = $$cur_size_r;
+
+    my $secs = time - $stats->{start_time};
 
     my $status = $get->{status};
     my $done;
@@ -931,6 +931,9 @@ sub file_progress {
         movie_panic($mid);
         return 0;
     }
+
+    my $rate = $stats->{bytes} / $secs;
+    D 'Prog:', $$cur_size_r, '/', $size, nice_bytes_join($rate);
 
     $d->prog($$cur_size_r);
 
