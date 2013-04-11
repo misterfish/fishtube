@@ -35,14 +35,8 @@ has idx => (
     },
 );
 
-# Totally unique, unlike mid. For communicating with threads.
-#has did => (
-#is => 'ro',
-#isa => 'Num',
-#);
-
 has getter => (
-    is => 'ro',
+    is => 'rw',
     isa => "Fish::Youtube::Get",
 );
 
@@ -56,28 +50,16 @@ has size => (
     isa => 'Int',
 );
 
+#has file_deleted => (
+#    is  => 'rw',
+#    isa => 'Bool',
+#);
+
 has title => (
     is  => 'ro',
     isa => 'Str',
     required => 1,
 );
-
-#has of => (
-#    is  => 'ro',
-#    isa => 'Str',
-#    required => 1,
-#);
-
-#has pid => (
-#    is  => 'ro',
-#    isa => 'Int',
-#    required => 1,
-#);
-
-#has pixmap => (
-#    is  => 'rw',
-#    isa => 'Gtk2::Gdk::Pixmap',
-#);
 
 has is_drawing => (
     is  => 'rw',
@@ -92,7 +74,6 @@ has is_downloading  => (
 has prog => (
     is  => 'rw',
     isa => 'Num',
-    #default => -1,
 );
 
 sub BUILD {
@@ -183,13 +164,13 @@ sub exists {
     return $downloads{$id} ? 1 : 0;
 }
 
+# Dumb place.
 sub make_pixmaps {
     my ($class) = @_;
 
     for my $id (keys %downloads) {
         my $d = $downloads{$id};
         next unless $d->is_drawing;
-        #$d->pixmap(Fish::Youtube::Gtk->make_pixmap);
         $d->component->remake_pixmap;
     }
 }

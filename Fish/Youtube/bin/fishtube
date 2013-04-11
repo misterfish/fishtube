@@ -72,7 +72,7 @@ if ($opt_d) {
     $Fish::Youtube::Utility::LOG_LEVEL++;
 }
 
-$SIG{__WARN__} = $SIG{__DIE__} = \&Carp::confess;
+$SIG{__WARN__} = $SIG{__DIE__} = \&Carp::confess if $debug;
 
 $| = 1;
 
@@ -83,7 +83,7 @@ $opt_h and error $USAGE;
 my $Profile_dir;
 my $Output_dir;
 
-my $g = 'Fish::Youtube::Gtk';
+my $G = 'Fish::Youtube::Gtk';
 
 my $profile_ask;
 {
@@ -182,7 +182,7 @@ timeout( 1000, sub { poll_movies() } );
 
 
 # Output_dir can be undef
-$g->init($Output_dir, { profile_ask => $profile_ask });
+$G->init($Output_dir, { profile_ask => $profile_ask });
 
 exit;
 
@@ -202,7 +202,7 @@ sub poll_movies {
 
     # no undefined element
     if (@$m and not grep { not defined } @$m) {
-        $g->set_buf($m);
+        $G->set_buf($m);
     }
 
     return 1;
@@ -419,14 +419,32 @@ sub process_running {
     return @children ? 1 : 0;
 }
 
+sub delete_file {
+    my ($file) = @_;
+    $file or warn, return;
+
+    $file =~ m| ^ /usr | and warn, return;
+    $file =~ m| ^ /etc | and warn, return;
+    $file =~ m| ^ / [^/]+ $ | and warn, return;
+
+    my ($out, $code) = sys qq, rm -f "$file" ,, { die => 0 };
+
+    if ($code) {
+        $G->err("Couldn't delete file '$file': $out");
+        return;
+    }
+
+    return 1;
+}
+
 sub watch_movie {
     my ($file) = @_;
     if ( ! -e $file ) {
-        $g->err("File '$file' doesn't exist, can't watch.");
+        $G->err("File '$file' doesn't exist, can't watch.");
         return;
     }
     if ( ! sys_ok qq, which $MOVIE_PLAYER , ) {
-        $g->status("Movie player '$MOVIE_PLAYER' doesn't exist.");
+        $G->status("Movie player '$MOVIE_PLAYER' doesn't exist.");
         return;
     }
 

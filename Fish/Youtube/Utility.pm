@@ -26,6 +26,7 @@ BEGIN {
         unshift_r shift_r pop_r push_r
 
         sig timeout set_cursor normal_cursor set_cursor_timeout
+        get_color
     /;
 }
 
@@ -737,6 +738,19 @@ sub normal_cursor {
     my ($w) = shift;
     set_cursor($w, 'left-ptr');
 }
+
+# 0-255
+sub get_color {
+    shift if $_[0] eq __PACKAGE__;
+    my ($r, $g, $b, $a) = @_;
+    for ($r, $g, $b, $a) {
+        $_ > 255 and die;
+        $_ < 0 and die;
+        $_ *= 257;
+    }
+    Gtk2::Gdk::Color->new($r, $g, $b, $a);
+}
+
 
 
 1;

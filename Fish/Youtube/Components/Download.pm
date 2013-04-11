@@ -36,6 +36,11 @@ has mid => (
 #has idx => (
 #);
 
+has _label_waiting => (
+    is  => 'rw',
+    isa => 'Gtk2::Label',
+);
+
 has _label_cur_size => (
     is  => 'rw',
     isa => 'Gtk2::Label',
@@ -56,13 +61,30 @@ has cb_watch_movie => (
     isa => 'CodeRef',
 );
 
+has cb_delete_file => (
+    is => 'rw',
+    isa => 'CodeRef',
+);
+
 has title => (
     is  => 'ro',
     isa => 'Str',
 );
 
+has _is_started => (
+    is  => 'rw',
+    isa => 'Bool',
+);
+
+has _wait_msg => (
+    is  => 'rw',
+    isa => 'Str',
+);
+
 my $HP = 50;
 my $WP = 50;
+
+my $PUNTJES_TIMEOUT = 500;
 
 my $G = 'Fish::Youtube::Gtk';
 my $L = 'Fish::Gtk2::Label';
@@ -86,6 +108,27 @@ sub BUILD {
     $eb->modify_bg('normal', $G->col->white);
 
     $self->_set_container($eb);
+
+    my $t = sprintf "Trying to get '%s' ", $self->title;
+    $self->_wait_msg($t);
+
+    my $l = $L->new($t);
+    $eb->add($l);
+    $self->_label_waiting($l);
+
+    # add puntjes to waiting msg
+    timeout $PUNTJES_TIMEOUT, sub {
+        return 0 if $self->_is_started;
+
+        my $msg = $self->_wait_msg;
+        $msg .= '.';
+        $self->_wait_msg($msg);
+        $self->_label_waiting->set_label($msg);
+
+        return 1;
+    };
+
+    $eb->show_all;
 }
 
 sub started {
@@ -93,21 +136,29 @@ sub started {
     my ($self, @opts) = @_;
     my %opts = @opts;
 
+    $self->_is_started(1);
+
     my $fs = $opts{file_size} or warn, return;
-    my $cb = $opts{cb_watch_movie} or warn, return;
+    my $cb1 = $opts{cb_watch_movie} or warn, return;
+    my $cb2 = $opts{cb_delete_file};
 
     $self->file_size($fs);
-    $self->cb_watch_movie($cb);
+    $self->cb_watch_movie($cb1);
+    $self->cb_delete_file($cb2) if $cb2;
 
     my $Col = $G->col;
 
     my $vb = Gtk2::VBox->new;
     $vb->modify_bg('normal', $Col->white);
 
-    $self->container->add($vb);
+    my $main = $self->container;
+
+    $self->_label_waiting->destroy;
+
+    $main->add($vb);
 
     my $c1 = $Col->black;
-    my $c2 = $G->get_color(100,100,33,255);
+    my $c2 = get_color(100,100,33,255);
     my $c3 = $c2;
     my $c4 = $c1;
 
@@ -137,18 +188,18 @@ sub started {
 
     $eb_im_cancel->signal_connect('button-press-event', sub {
         $G->cancel_download($mid);
-        $G->remove_download_entry($mid);
-        # 1 means don't propagate (we are inside $eb)
+        # 1 means don't propagate -- i.e., don't watch movie. (we are inside $eb)
         return 1;
     });
 
     $eb_im_delete->signal_connect('button-press-event', sub {
         $G->cancel_download($mid);
-        $G->remove_download_entry($mid);
 
-        # and delete XX
+        if (my $cb = $self->cb_delete_file) {
+            $cb->();
+        }
 
-        # 1 means don't propagate (we are inside $eb)
+        # 1 means don't propagate -- i.e., don't watch movie. (we are inside $eb)
         return 1;
     });
 
@@ -185,17 +236,15 @@ sub started {
         $self->_eb_controls($eb);
     }
 
-    $self->container->signal_connect('button-press-event', sub {
+    $main->signal_connect('button-press-event', sub {
         $self->cb_watch_movie->();
     });
 
     #remove_wait_label($mid);
 
-    $G->update_scroll_area(+1);
-
-    set_cursor_timeout $self->container, 'hand2';
+    set_cursor_timeout $main, 'hand2';
     
-    $self->container->show_all;
+    $main->show_all;
 }
 
 # Called by Download::make_pixmaps
@@ -224,8 +273,6 @@ sub update {
 
     my $l = $self->_label_cur_size or warn, return;
     my $file_size = $self->file_size or warn, return;
-
-D 'setting!', 'cur_size', $cur_size;
 
     $l->set_label(nice_bytes_join $cur_size, { size => 'small' });
 

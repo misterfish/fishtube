@@ -39,8 +39,6 @@ use Fish::Youtube::Get;
 
 my $D = 'Fish::Youtube::Download';
 
-#%
-
 # make up a unique id
 use constant STATUS_OD => 100;
 use constant STATUS_MISC => 101;
@@ -188,11 +186,6 @@ my $G = o(
 
     download_comp => {},
 
-    # also temporarily block all events after one event has fired. this is
-    # so that entering the inner box doesn't trigger a leave on the outer
-    # box which immediately turns off the inner box again.
-    #controls_lock_all_with_timeout => {},
-
     auto_launched => {},
     download_successful => {},
 
@@ -203,7 +196,6 @@ my $G = o(
     # auto add methods last_xxx_inc, last_xxx_dec.
     '+-last_mid' => -1,
     '+-last_idx' => -1,
-    #'+-last_did' => -1,
 
     # medium
     preferred_quality => 1,
@@ -224,7 +216,6 @@ my $Col = o(
 );
 
 sub col { $Col }
-
 
 {
     my %img = map {
@@ -375,7 +366,9 @@ sub init {
         my $t = $W_tb->options;
 
         # leftmost col, rightmost col, uppermost row, lower row, optx, opty, padx, pay
-        $t->attach($W_sb->main, 0, 1, 0, 1, $ooo, $ooo, 10, 10);
+
+        $t->attach($W_sb->main, 0, 1, 1, 2, $ooo, $ooo, 10, 10);
+
         $t->attach(left($auto_start_cb), 1, 2, 0, 1, $ooo, $ooo, 10, 10);
         $t->attach($W_eb->od, 2, 3, 1, 2, $ooo, $ooo, 10, 10);
 
@@ -421,8 +414,6 @@ sub init {
         $W_hp->main->pack1($hb, 0, 1);
     }
 
-    #$W_hp->main->pack1($l, 0, 1);
-
     $W_ly->right->signal_connect('expose_event', \&expose_drawable );
     $W_ly->right->modify_bg('normal', $Col->white);
 
@@ -433,8 +424,6 @@ sub init {
         my $b = Gtk2::VBox->new;
         # resize, shrink
         $W_hp->main->pack2($b, 0, 1);
-        #$b->pack_start($f, 1, 1, 4);
-        #$f->add($W_sw->right);
         $b->pack_start($W_sw->right, 1, 1, 0);
     }
 
@@ -462,10 +451,6 @@ sub init {
         update_movie_tree() ;
     };
 
-my $SIMULATE = 0;
-
-    $SIMULATE and simulate();
-
     my @init_chain;
 
     if ($profile_ask) {
@@ -479,16 +464,10 @@ my $SIMULATE = 0;
 
     my $chain = sub {
 
-        #Gtk2::Gdk::Threads->enter;
-
         $_->() for @init_chain;
-
-        #Gtk2::Gdk::Threads->leave;
         0;
     };
     timeout 100, $chain;
-
-    #timeout 100, \&poll_downloads;
 
     # make Y, R, etc. no-ops
     disable_colors();
@@ -589,41 +568,24 @@ sub tree_num_children {
 }
 
 
-# 0-255
-sub get_color {
-    shift if $_[0] eq __PACKAGE__;
-    my ($r, $g, $b, $a) = @_;
-    for ($r, $g, $b, $a) {
-        $_ > 255 and die;
-        $_ < 0 and die;
-        $_ *= 257;
-    }
-    Gtk2::Gdk::Color->new($r, $g, $b, $a);
-}
-
 sub row_activated {
     my ($obj, $path, $column) = @_;
-
-    #set_cursor($W, 'watch');
 
     my $row_idx = $path->get_indices;
     my $d = $G->movie_data->[$row_idx] or die;
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
-    my $ok = start_download($u, $t, $mid);
+    my $ok = init_download($u, $t, $mid);
 
-    # otherwise restored within start_download
+    # otherwise restored within init_download
     normal_cursor $W;
 }
 
-sub start_download {
+sub init_download {
     my ($u, $title, $mid) = @_;
 
     # already downloaded /-ing
     return if $D->exists($mid);
-    
-    #$G->last_did_inc;
-    #my $did = $G->last_did;
 
     if (! $Output_dir) {
         # remove_all doesn't seem to work.
@@ -635,10 +597,13 @@ sub start_download {
     $G->download_successful->{$mid} = 0;
     $G->auto_launched->{$mid} = 0;
 
+    $title ||= 'manual download';
+
     my $download_comp = Fish::Youtube::Components::Download->new(
         title => $title,
         mid => $mid,
     );
+
     $G->download_comp->{$mid} = $download_comp;
 
     # main eventbox for comp
@@ -651,12 +616,7 @@ sub start_download {
 
     $W_ly->right->put($download_comp_container, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
 
-    my $wait_s = "Trying to get '";
-    $wait_s .= $title ? $title : 'manual download';
-    $wait_s .= "' ";
-
-    #$G->last_mid_in_statusbar($mid);
-    #$W_sb->main->push($mid, $wait_s);
+    update_scroll_area(+1);
 
     state $first = 1;
 
@@ -676,36 +636,34 @@ sub start_download {
 
     set_cursor($W, 'watch') unless $async;
 
-    # manual download -- get name from youtube-get
-    # XX
-    # if any prompting, we can't know outfile. 
-    # also if async, we can't know it.
-    # always overwrite if async.
-    if (! $title) {
-        $manual = 1;
-    } 
-
-    # add puntjes to waiting msg
-    timeout 300, sub {
-        my $text;
-        #return 0 unless $G->last_mid_in_statusbar == $mid;
-        #return 0 unless $text = $G->is_waiting->{$mid};
-
-        $text .= '.';
-        # YY
-        #$W_sb->main->pop($mid);
-        #$W_sb->main->push($mid, $text);
-        #$G->is_waiting->{$mid} = $text;
-        1;
-    };
-
     # can go
-    #$W_ly->right->show_all;
+    $W_ly->right->show_all;
 
     if ($first) {
         set_pane_position($G->width / 2);
         $first = 0;
     }
+
+    redraw();
+
+    # Want the redraws to happen now.
+    timeout 10, sub { 
+        start_download($mid, $title, $u, $idx, $download_comp, $async, $prefq, $preft, $itaq, $itat);
+        return 0;
+    }
+}
+
+sub start_download {
+
+    my ($mid, $title, $u, $idx, $download_comp, $async, $prefq, $preft, $itaq, $itat) = @_;
+
+    # manual download -- get name from youtube-get
+    # XX
+    # if any prompting, we can't know outfile. 
+    # also if async, we can't know it.
+    # always overwrite if async.
+    my $manual;
+    $manual = 1 unless $title;
 
     my $get;
     my $status;
@@ -754,14 +712,6 @@ warn 'not implemented';
         title   => $title,
     );
 
-
-
-
-
-
-
-    #$G->is_waiting->{$mid} = $wait_s;
-
     my $size;
 
     set_cursor($W, 'x-cursor') unless $async;
@@ -784,9 +734,7 @@ warn 'not implemented';
 
                 D2 'got size', $size;
 
-                #timeout 500, sub {
-                    watch_download($mid, $title, $get, $size, $manual) ;
-                    #};
+                download_started($mid, $title, $get, $size, $manual) ;
 
                 return 0;
             }
@@ -800,14 +748,14 @@ warn 'not implemented';
         #my $of = $md->{of} or warn, return;
 
         #timeout 500, sub { 
-        #    watch_download($did, $mid, $title, $dl_tracker, $of, $size, $manual) 
+        #    download_started($did, $mid, $title, $dl_tracker, $of, $size, $manual) 
         #};
     }
 }
 
 # Download really started. Update component, watch size, wait for finish.
 
-sub watch_download {
+sub download_started {
     my ($mid, $title, $get, $size, $manual) = @_;
 
 #    if ($dl_tracker->{status} eq 'error') {
@@ -827,15 +775,21 @@ sub watch_download {
         $title =~ s/\.\w+$//;
     }
 
+    my $d = $D->get($mid) or warn, return;
+
     my $download_comp = $G->download_comp->{$mid} or warn, return;
     $download_comp->started(
         file_size => $size,
         cb_watch_movie => sub {
             main::watch_movie($of);
         },
+        cb_delete_file => sub {
+            $of or return;
+            main::delete_file($of) or return;
+            #$d->file_deleted(1);
+            remove_download_entry($mid);
+        },
     );
-
-    my $d = $D->get($mid) or warn, return;
 
     $d->size($size);
 
@@ -846,6 +800,11 @@ sub watch_download {
 
         $d->is_drawing or do {
             D2 'stopping animation: is_drawing is 0';
+            return 0;
+        };
+
+        $d->is_downloading or do {
+            D2 'stopping animation: is_downloading is 0';
             return 0;
         };
 
@@ -885,18 +844,17 @@ sub watch_download {
 
     my $cur_size;
 
-    # update $cur_size and also set ->prog of download object. cur_size a
-    # bit useless? XX
+    # update $cur_size and also set ->prog of download object. 
+    # cur_size is a bit useless.
     timeout 200, sub { 
-        # 
+
+        # file_progress is where we see if download finished.
         return file_progress({ simulate => 0}, $mid, $get, $of, \$cur_size, $size);
     };
     
     timeout 500, sub { auto_start_watching($mid, \$cur_size, $size, $of) };
 
     D2 'gtk: download started, outer timeout over';
-
-    return 0;
 }
 
 sub auto_start_watching {
@@ -923,9 +881,24 @@ sub file_progress {
     # cur_size_r is watched from outside.
     my ($mid, $get, $file, $cur_size_r, $size) = @_;
 
-    my $s = stat $file or warn(), return 1;
-
     my $d = $D->get($mid);
+
+    if (!$d) {
+        D2 'download obj destroyed';
+        return;
+    }
+
+    #if ($d->file_deleted) {
+    #D2 'file deleted.';
+    #return;
+    #}
+
+    my $s = stat $file;
+
+    if (!$s) {
+        err "File '$file' disappeared.";
+        return;
+    }
 
     my $delete;
 
@@ -948,8 +921,7 @@ sub file_progress {
     }
     elsif ($status eq 'cancelled') {
         D2 'cancelled!';
-        #redraw();
-        #remove_download_entry($mid);
+        remove_download_entry($mid);
         return 0;
     }
 
@@ -1111,8 +1083,8 @@ sub cancel_download {
 
     my $get = $d->getter;
 
+    download_stopped($mid);
     $get->cancel;
-
 }
 
 sub remove_download_entry {
@@ -1143,10 +1115,11 @@ sub remove_download_entry {
             $W_ly->right->move($box, $INFO_X, $RIGHT_PADDING_TOP + $d->idx * ($HP + $RIGHT_SPACING_V));
         }
     }
-    #my $ib = delete $G->info_box->{$mid};
+    
     $ib->destroy;
 
     update_scroll_area(-1);
+
     #D 'redrawing';
     redraw();
 }
@@ -1200,6 +1173,7 @@ sub update_scroll_area {
     shift if $_[0] eq __PACKAGE__;
     my $i = shift;
     $Scrollarea_height += ($HP + $RIGHT_SPACING_V) * $i;
+    $Scrollarea_height = max $Scrollarea_height, 0;
     # first num just needs to be big
     $W_ly->right->set_size(2000, $Scrollarea_height);
 }
@@ -1215,7 +1189,7 @@ sub inject_movie {
     state $i = 0;
     # check url?
     $G->last_mid_inc;
-    start_download($url, undef, $G->last_mid);
+    init_download($url, undef, $G->last_mid);
 }
 
 sub make_dialog {
@@ -1287,7 +1261,10 @@ sub inject_movie_dialog {
 sub movie_panic_while_waiting {
     my ($mid, $errstr) = @_;
     movie_panic($mid, $errstr);
-    remove_wait_label($mid);
+
+    #my $c = $G->download_comp->{$mid} or return;
+    #$c->container->destroy;
+    remove_download_entry($mid);
 }
 
 sub movie_panic {
