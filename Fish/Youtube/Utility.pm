@@ -25,6 +25,8 @@ BEGIN {
         nice_bytes nice_bytes_join o
         unshift_r shift_r pop_r push_r
 
+        free_space 
+
         sig timeout set_cursor normal_cursor set_cursor_timeout
         get_color
     /;
@@ -751,6 +753,26 @@ sub get_color {
     Gtk2::Gdk::Color->new($r, $g, $b, $a);
 }
 
+sub free_space {
+    my ($file) = @_;
+
+    #Filesystem     1K-blocks     Used Available Use% Mounted on
+    #/dev/sda7       59616252 59616252         0 100% /stuff
+
+    my ($l, $code, $err) = sysl qq, df "$file" ,,;
+    if ($code) { 
+        warn join ' ', list $l;
+        return -1;
+    }
+    else {
+        my $s = $l->[1] or warn, return;
+        my @split = (split /\s+/, $s);
+        my $part = $split[0] or warn, return;
+        my $space = $split[3];
+        defined $space or warn, return;
+        return wantarray ? ($space, $part) : $space;
+    }
+}
 
 
 1;

@@ -441,7 +441,17 @@ sub get_go {
 
                 return unless $self->headers_ok($headers_r);
 
-                syswrite $fh, $buf or warn, return;
+                syswrite $fh, $buf or do {
+                    my ($space, $part) = free_space $of;
+                    if ($space == 0) {
+                        $self->err("No more free space on partition '$part'");
+                    }
+                    else {
+                        $self->err("Can't write to filehandle though disk is not full.");
+
+                    }
+                    return;
+                };
 
                 1;
             }, sub {
@@ -741,8 +751,8 @@ sub headers_ok {
 
     my $status = $headers_r->{Status};
     if ($status !~ /^2/) {
-        D ("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
-        $self->err("Can't get movie:", $headers_r->{Status}, $headers_r->{Reason});
+        my $t = $self->errstr || sprintf "%s (status %s)", $headers_r->{Reason}, $headers_r->{Status};
+        $self->err($t);
 
         return;
     }

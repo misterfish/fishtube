@@ -112,7 +112,7 @@ sub BUILD {
     my $t = sprintf "Trying to get '%s' ", $self->title;
     $self->_wait_msg($t);
 
-    my $l = $L->new($t);
+    my $l = $L->new($t, { size => 'small' });
     $eb->add($l);
     $self->_label_waiting($l);
 

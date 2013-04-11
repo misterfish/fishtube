@@ -608,34 +608,31 @@ warn 'not implemented';
     }
 
     if ($status eq 'error') {
-        war "Download thread reported error.";
+        war "Error in download.";
         warn $errstr if $errstr;
 
         movie_panic_while_waiting($mid, $errstr);
 
-        # destroy XX
         return;
     }
 
     elsif ($status eq 'cancelled') {
         D2 'cancelled.';
-        # destroy XX
         return;
     }
 
     my $d = $D->new(
         # main id = mid
         id      => $mid,
-        # id of drawn component in list. will change when something is deleted.
+
+        # id of drawn component in list. 
+        # Will change when something is deleted.
         idx     => $idx,
 
         component => $download_comp,
 
         # Get object
         getter => $get,
-
-        # totally unique for each download, for communicating with threads
-        #did => $did,
 
         title   => $title,
     );
@@ -705,7 +702,6 @@ sub download_started {
         cb_delete_file => sub {
             $of or return;
             main::delete_file($of) or return;
-            #$d->file_deleted(1);
             remove_download_entry($mid);
         },
     );
@@ -798,11 +794,6 @@ sub file_progress {
         D2 'download obj destroyed';
         return;
     }
-
-    #if ($d->file_deleted) {
-    #D2 'file deleted.';
-    #return;
-    #}
 
     my $s = stat $file;
 
@@ -1050,8 +1041,6 @@ sub remove_download_entry {
 sub err {
     my ($a, $b) = @_;
 
-    #Gtk2::Gdk::Threads->enter;
-
     # class method or not
     my $s = $b // $a;
 
@@ -1064,8 +1053,6 @@ sub err {
     $dialog->signal_connect('response', sub { shift->destroy });
     
     $dialog->run;
-
-    #Gtk2::Gdk::Threads->leave;
 }
 
 sub status {
@@ -1075,10 +1062,8 @@ sub status {
 }
 
 sub mess {
-    my ($a, $b) = @_;
-
-    # class method or not
-    my $s = $b // $a;
+    shift if $_[0] eq __PACKAGE__; 
+    my ($s) = @_;
 
     my $d = Gtk2::MessageDialog->new($W,
         'modal',
@@ -1184,8 +1169,6 @@ sub movie_panic_while_waiting {
     my ($mid, $errstr) = @_;
     movie_panic($mid, $errstr);
 
-    #my $c = $G->download_comp->{$mid} or return;
-    #$c->container->destroy;
     remove_download_entry($mid);
 }
 
@@ -1306,8 +1289,6 @@ sub do_output_dir_dialog {
         $od = $o if main::check_output_dir($o);
     }
     set_output_dir($od);
-    # doesn't work
-    #$status_bar->remove_all(STATUS_OD);
     $W_sb->main->pop(STATUS_OD);
 }
 
@@ -1384,8 +1365,8 @@ sub replace_file_dialog {
 
     my $dialog = Gtk2::MessageDialog->new ($W,
         'modal',
-        'question', # message type
-        'yes-no', # which set of buttons?
+        'question', 
+        'yes-no', 
         "File '%s' exists; overwrite?", $of);
 
     my $response;
@@ -1543,7 +1524,6 @@ sub make_list_choice {
     my $vb = Gtk2::VBox->new(0);
 
     my $l = $L->new($text);
-    #$vb->pack_start($l, 1, 0, 10);
     $vb->pack_start($l, 1, 0, 2);
     $vb->pack_start($combo_box, 0, 0, 10);
 
