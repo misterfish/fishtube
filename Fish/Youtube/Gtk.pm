@@ -29,8 +29,11 @@ use Fish::Gtk2::Label;
 my $L = 'Fish::Gtk2::Label';
 
 use Fish::Youtube::Utility;
+
 use Fish::Youtube::Download;
-use Fish::Youtube::Anarchy;
+use Fish::Youtube::Components::Anarchy;
+
+use Fish::Youtube::Components::Download;
 
 use Fish::Youtube::Get;
 
@@ -75,8 +78,8 @@ my $HEIGHT = 300;
 
 my $WID_PERC = .75;
 
-my $WP = 50;
-my $HP = 50;
+my $WP = Fish::Youtube::Components::Download->width;
+my $HP = Fish::Youtube::Components::Download->height;
 
 my $RIGHT_SPACING_H_1 = 10;
 my $RIGHT_SPACING_H_2 = 10;
@@ -194,10 +197,10 @@ my $G = o(
     # ]
     size_label => {},
 
-    info_box => {},
+    #info_box => {},
 
     # by mid, cancel and delete buttons
-    controls => {},
+    #controls => {},
 
     # to avoid infinite loops of enter/exit events when there's an inner
     # box inside an outer box. this is because an enter/exit on the inner
@@ -239,6 +242,8 @@ my $Col = o(
     white => get_color(255,255,255,255),
     black => get_color(0,0,0,255),
 );
+
+sub col { $Col }
 
 
 {
@@ -622,6 +627,7 @@ sub timeout {
 
 # 0-255
 sub get_color {
+    shift if $_[0] eq __PACKAGE__;
     my ($r, $g, $b, $a) = @_;
     for ($r, $g, $b, $a) {
         $_ > 255 and die;
@@ -819,7 +825,7 @@ sub watch_download {
         $title =~ s/\.\w+$//;
     }
 
-    add_download($did, $mid, $get, $title, $size, $of);
+    queue_download($did, $mid, $get, $title, $size, $of);
 
     my $cur_size;
 
@@ -909,7 +915,7 @@ sub file_progress {
     return 1;
 }
 
-sub add_download {
+sub queue_download {
 
     my ($did, $mid, $get, $title, $size, $of) = @_;
 
@@ -935,27 +941,46 @@ sub poll_downloads {
 
     my %db = $G->download_buf or return 1;
 
+    add_download(\%db);
+}
+
+sub add_download {
+    my $db = shift;
+
     # start new download
 
-    my $size = $db{size};
-    my $title = $db{title};
-    my $idx = $db{idx};
-    my $of = $db{of};
+    # assume all ok.
+    my $size = $db->{size};
+    my $title = $db->{title};
+    my $idx = $db->{idx};
+    my $of = $db->{of};
+    my $get = $db->{get};
+    my $mid = $db->{mid};
+    my $did = $db->{did};
 
-    my $get = $db{get};
+    my $download_comp = Fish::Youtube::Components::Download->new(
+        file_size => $size,
+        title => $title,
+        cb_watch_movie => sub {
+            main::watch_movie($of);
+        },
+        mid => $mid,
+    );
 
-    my $pixmap = make_pixmap();
-    clear_pixmap($pixmap);
+    # main eventbox for comp
+    my $download_comp_container = $download_comp->container;
 
-    my $mid = $db{mid};
+    my $height_box = $download_comp->height;
 
-    my $did = $db{did};
+    $W_ly->right->put($download_comp_container, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
 
     my $d = $D->new(
         # main id = mid
         id      => $mid,
-        # for drawing pixmaps
+        # id of drawn component in list. will change when something is deleted.
         idx     => $idx,
+
+        component => $download_comp,
 
         # Get object
         getter => $get,
@@ -965,129 +990,11 @@ sub poll_downloads {
 
         size    => $size,
         title   => $title,
-   
-        pixmap  => $pixmap,
     );
 
     $G->download_buf({});
 
-    my $anarchy = Fish::Youtube::Anarchy->new(
-        width => $WP,
-        height => $HP,
-    );
-
-    my $vb = Gtk2::VBox->new;
-
-    my $c1 = $Col->black;
-    my $c2 = get_color(100,100,33,255);
-    my $c3 = $c2;
-    my $c4 = $c1;
-
-    my $l1 = $L->new($title, { size => 'small' });
-    $l1->modify_fg('normal', $c1);
-
-    my $l2 = $L->new;
-    $l2->modify_fg('normal', $c2);
-    $G->size_label->{$mid}[0] = $l2;
-
-    my $l3 = $L->new('/', { size => 'small' });
-    $l3->modify_fg('normal', $c3);
-    $G->size_label->{$mid}[1] = $l3;
-
-    my $l4 = $L->new(nice_bytes_join $size, { size => 'small' });
-    $l4->modify_fg('normal', $c4);
-
-    my $eb_im_cancel = get_image_button('cancel', 'cancel_hover'); 
-    my $eb_im_delete = get_image_button('delete', 'delete_hover'); 
-    my $eb_im_blank = get_image_button('blank');
-
-    $eb_im_cancel->signal_connect('button-press-event', sub {
-        cancel_download($mid);
-        remove_download_entry($mid);
-        # 1 means don't propagate (we are inside $eb)
-        return 1;
-    });
-
-    $eb_im_delete->signal_connect('button-press-event', sub {
-        cancel_download($mid);
-        remove_download_entry($mid);
-
-        # and delete XX
-
-        # 1 means don't propagate (we are inside $eb)
-        return 1;
-    });
-
-    # title
-    $vb->add($l1);
-
-    {
-        my $hb = Gtk2::HBox->new;
-
-        # cur 
-        $hb->pack_start($l2, 0, 0, 0);
-        # / 
-        $hb->pack_start($l3, 0, 0, 0);
-        # total
-        $hb->pack_start($l4, 0, 0, 0);
-
-        $hb->pack_end($eb_im_delete, 0, 0, 0);
-        $hb->pack_end($eb_im_cancel, 0, 0, 5);
-
-        # bottom, doesn't work
-        #my $al = Gtk2::Alignment->new(0, 1, 0, 0);
-
-        my $eb = Gtk2::EventBox->new;
-        $eb->add($hb);
-
-        my $hb_outer = Gtk2::HBox->new;
-        $hb_outer->pack_start($eb_im_blank, 0, 0, 0);
-        $hb_outer->pack_start($eb, 1, 1, 0);
-
-        $vb->add($hb_outer);
-
-        $eb->modify_bg('normal', $Col->white);
-
-        $G->controls->{$mid} = $eb;
-    }
-
-    $vb->modify_bg('normal', $Col->white);
-
-    {
-        #my $eb = $W_eb->info;
-        my $eb = Gtk2::EventBox->new;
-        $eb->modify_bg('normal', $Col->white);
-        $G->info_box->{$mid} = $eb;
-        $eb->add($vb);
-        $eb->signal_connect('button-press-event', sub {
-            main::watch_movie($of);
-        });
-
-        $W_ly->right->put($eb, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($HP + $RIGHT_SPACING_V));
-
-        $eb->show_all;
-    }
-
-    remove_wait_label($mid);
-
-    update_scroll_area(+1);
-    #$W_ly->right->show_all;
-
-    {
-        set_cursor_timeout($G->info_box->{$mid}, 'hand2');
-
-#        sig $G->controls->{$mid}, 'enter-notify-event', sub {
-#            D 'inner entered!';
-#            # don't let inner enter trigger outer leave
-#            $G->controls_lock_leave->{$mid} = 1;
-#        };
-        #
-        #sig $G->controls->{$mid}, 'leave-notify-event', sub {
-        #    D 'inner left!';
-        #    # don't let inner leave trigger outer enter
-        #    $G->controls_lock_enter->{$mid} = 1;
-        #};
-    }
+    my $size_set = 0;
 
     # check size, update download status, update pixmap
     timeout(50, sub {
@@ -1102,12 +1009,14 @@ sub poll_downloads {
         };
 
         state $last = -1;
-        $size // return 1;
+
+        if (!$size_set) {
+            $size // return 1;
+            $download_comp->file_size($size);
+            $size_set = 1;
+        }
 
         my $err;
-
-        # get every time.
-        my $pixmap = $d->pixmap;
 
         my $p = $d->prog;
         if (not defined $p) {
@@ -1115,40 +1024,16 @@ sub poll_downloads {
             return 1;
         }
 
-        # shouldn't happen
-        if (not $pixmap) {
-            warn "pixmap not defined";
-            return 0;
+        if ($download_comp->update($p)) {
+            return 1;
         }
-
-        my $l = $G->size_label->{$mid}[0];
-        $l and $l->set_label(nice_bytes_join $p, { size => 'small' });
-
-        my $perc = $p / $size * 100;
-        if ($last != $p) {
-            my $s = sprintf "%d / %d (%d%%)", $p, $size, $perc;
-
-            # animate here
-            my $surface = $anarchy->draw($perc / 100);
-
-            draw_surface_on_pixmap($pixmap, $surface);
-        }
-        $last = $p;
-
-        if ($perc >= 100) {
-            my $surface = $anarchy->draw(1, { last => 1});
-
-            D2 'animation loop: completed, stopping';
-
-            draw_surface_on_pixmap($pixmap, $surface);
-
+        else {
             # manually call one last redraw
             redraw();
-            
             $d->stopped_drawing;
             return 0;
         }
-        return 1;
+
     });
 
     1;
@@ -1181,7 +1066,9 @@ sub configure_main {
 }
 
 sub make_pixmap {
-    my ($pw, $ph) = ($WP, $HP);
+    shift if $_[0] eq __PACKAGE__;
+    my $pw = shift or warn, return;
+    my $ph = shift or warn, return; 
     my $pixmap = Gtk2::Gdk::Pixmap->new($W->window, $pw, $ph, 24);
     return $pixmap;
 }
@@ -1208,7 +1095,7 @@ sub expose_drawable {
 
     # check cur
     for my $d ($D->all) {
-        my $pixmap = $d->pixmap or warn, next;
+        my $pixmap = $d->component->pixmap or warn, next;
         my $idx = $d->idx;
 
         $window->draw_drawable(
@@ -1225,6 +1112,7 @@ sub expose_drawable {
 }
 
 sub clear_pixmap {
+    shift if $_[0] eq __PACKAGE__;
     my $pixmap = shift;
     my ($w, $h) = $pixmap->get_size;
     my $surface = Cairo::ImageSurface->create('argb32', $w, $h);
@@ -1241,7 +1129,10 @@ sub clear_pixmap {
 }
 
 sub draw_surface_on_pixmap {
+
+    shift if $_[0] eq __PACKAGE__;
     my ($pixmap, $surface) = @_;
+
     my $cairo_pixmap = Gtk2::Gdk::Cairo::Context->create($pixmap);
     $cairo_pixmap->set_source_surface($surface, 0,0);
     $cairo_pixmap->paint;
@@ -1271,9 +1162,17 @@ sub download_stopped {
 sub download_finished {
     my ($mid) = @_;
     download_stopped($mid);
-    $_->hide for $G->controls->{$mid}, list $G->size_label->{$mid};
+
+    # hide YY
+    #$_->hide for $G->controls->{$mid}, list $G->size_label->{$mid};
+
     #$_->destroy, undef $_ for $G->controls->{$mid}, list $G->size_label->{$mid};
     $G->download_successful->{$mid} = 1;
+
+
+=head
+
+YY
 
     my $i = $G->info_box->{$mid};
 
@@ -1301,11 +1200,13 @@ sub download_finished {
         my $c = $G->controls->{$mid} or warn, return;
         $c->hide;
     };
+=cut
 
 
 }
 
 sub cancel_download {
+    shift if $_[0] eq __PACKAGE__;
     my ($mid) = @_;
 
     my $d = $D->get($mid) or warn, return;
@@ -1317,11 +1218,14 @@ sub cancel_download {
 }
 
 sub remove_download_entry {
+    shift if $_[0] eq __PACKAGE__;
     my ($mid) = @_;
 
     my $d = $D->get($mid) or warn, return;
 
     my $idx = $d->idx;
+
+    my $ib = $d->component->container;
 
     # This will cancel the animation loop. Then we erase the stuff and do
     # one last redraw.
@@ -1333,12 +1237,15 @@ sub remove_download_entry {
         my $j = $d->idx;
         if ($j > $idx) {
             $d->idx_dec;
-            my $box = $G->info_box->{$d->id};
+
+            #my $box = $G->info_box->{$d->id};
+            my $box = $d->component->container;
+
             # shift up
             $W_ly->right->move($box, $INFO_X, $RIGHT_PADDING_TOP + $d->idx * ($HP + $RIGHT_SPACING_V));
         }
     }
-    my $ib = delete $G->info_box->{$mid};
+    #my $ib = delete $G->info_box->{$mid};
     $ib->destroy;
 
     update_scroll_area(-1);
@@ -1392,6 +1299,7 @@ sub mess {
 
 # +1 when dl is added, -1 when removed
 sub update_scroll_area {
+    shift if $_[0] eq __PACKAGE__;
     my $i = shift;
     $Scrollarea_height += ($HP + $RIGHT_SPACING_V) * $i;
     # first num just needs to be big
@@ -1619,6 +1527,7 @@ sub set_output_dir {
 }
 
 sub set_cursor_timeout {
+    shift if $_[0] eq __PACKAGE__;
     my ($widget, $curs) = @_;
     timeout(50, sub { 
         return ! set_cursor($widget, $curs) 
@@ -1649,7 +1558,7 @@ return;
         my $err_file = 'null';
         my $pid = -1234;
 my $did = undef;
-        add_download($did, $mid, $of, $size);
+        queue_download($did, $mid, $of, $size);
 
         my $fh = safeopen ">$of";
         select $fh;
@@ -1890,6 +1799,7 @@ sub normal_cursor {
 
 
 sub get_image_button {
+    shift if $_[0] eq __PACKAGE__;
     my ($which, $which_hover) = @_;
 
     my $im = Gtk2::Image->new;

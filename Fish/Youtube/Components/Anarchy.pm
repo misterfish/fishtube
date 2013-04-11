@@ -1,5 +1,5 @@
 #!/usr/bin/perl 
-package Fish::Youtube::Anarchy;
+package Fish::Youtube::Components::Anarchy;
 
 use 5.10.0;
 

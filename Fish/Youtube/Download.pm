@@ -15,8 +15,7 @@ my %downloads;
 my $num_drawing = 0;
 my $num_downloading = 0;
 
-# for now, equal to $mid in Gui. works because a movie has max one download
-# object.
+# Equal to $mid in Gui. Works because a movie has max one download object.
 
 has id => (
     is  => 'ro',
@@ -24,7 +23,7 @@ has id => (
     required => 1,
 );
 
-# for drawing pixmaps
+# id of drawn component in list. will change when something is deleted.
 has idx => (
     is  => 'ro',
     isa => 'Int',
@@ -47,6 +46,10 @@ has getter => (
     isa => "Fish::Youtube::Get",
 );
 
+has component => (
+    is  => 'ro',
+    isa => 'Fish::Youtube::Components::Download',
+);
 
 has size => (
     is  => 'ro',
@@ -72,10 +75,10 @@ has title => (
 #    required => 1,
 #);
 
-has pixmap => (
-    is  => 'rw',
-    isa => 'Gtk2::Gdk::Pixmap',
-);
+#has pixmap => (
+#    is  => 'rw',
+#    isa => 'Gtk2::Gdk::Pixmap',
+#);
 
 has is_drawing => (
     is  => 'rw',
@@ -187,7 +190,8 @@ sub make_pixmaps {
     for my $id (keys %downloads) {
         my $d = $downloads{$id};
         next unless $d->is_drawing;
-        $d->pixmap(Fish::Youtube::Gtk->make_pixmap);
+        #$d->pixmap(Fish::Youtube::Gtk->make_pixmap);
+        $d->component->remake_pixmap;
     }
 }
 
