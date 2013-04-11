@@ -20,10 +20,10 @@ has _anarchy => (
     isa => 'Fish::Youtube::Components::Anarchy',
 );
 
-has container => (
+has widget => (
     is => 'ro',
     isa => 'Gtk2::EventBox',
-    writer => '_set_container',
+    writer => '_set_widget',
 );
 
 has mid => (
@@ -107,7 +107,7 @@ sub BUILD {
     my $eb = Gtk2::EventBox->new;
     $eb->modify_bg('normal', $G->col->white);
 
-    $self->_set_container($eb);
+    $self->_set_widget($eb);
 
     my $t = sprintf "Trying to get '%s' ", $self->title;
     $self->_wait_msg($t);
@@ -151,7 +151,7 @@ sub started {
     my $vb = Gtk2::VBox->new;
     $vb->modify_bg('normal', $Col->white);
 
-    my $main = $self->container;
+    my $main = $self->widget;
 
     $self->_label_waiting->destroy;
 
@@ -313,7 +313,7 @@ sub finished {
 
     # Hide controls but show with mouseover.
     
-    my $i = $self->container;
+    my $i = $self->widget;
     my $c = $self->_eb_controls;
     $c->hide;
 

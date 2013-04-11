@@ -44,6 +44,9 @@ my $D = 'Fish::Youtube::Download';
 use constant STATUS_OD => 100;
 use constant STATUS_MISC => 101;
 
+# not implemented.
+use constant ALLOW_SYNC => 0;
+
 sub err;
 sub error;
 sub war;
@@ -60,6 +63,8 @@ my $IMAGES_DIR = $main::bin_dir . '/../images';
 my $TIMEOUT_METADATA = 15000;
 #my $TIMEOUT_REDRAW = 50;
 my $TIMEOUT_REDRAW = 100;
+
+my $DELAY_START_DOWNLOAD = 300;
 
 my %IMG = (
     add                 => 'add-12.png',
@@ -100,6 +105,7 @@ my $T = o(
     pt2  => "Preferred format:",
     pt3  => "Required format:",
     fb  => "Allow fallback",
+    overwrite => 'Existing files will be overwritten.',
     ask => "(ask)",
 );
 
@@ -175,18 +181,12 @@ my $G = o(
 
     # two ways to use hashes, bit different possibilities
     '%img' => {},
-    #'%download_buf' => {},
-    # mid => text
-    #is_waiting => {},
 
     download_comp => {},
     movies_list_comp => undef,
 
     auto_launched => {},
     download_successful => {},
-
-    # left pane
-    movie_data => [],
 
     # auto add methods last_xxx_inc, last_xxx_dec.
     '+-last_mid' => -1,
@@ -197,8 +197,13 @@ my $G = o(
     # mp4
     preferred_type => 0,
 
-    qualities => [ Fish::Youtube::Get->qualities, $T->ask ],
-    types => [ Fish::Youtube::Get->types, $T->ask ],
+    qualities => ALLOW_SYNC ? 
+        [ Fish::Youtube::Get->qualities ] :
+        [ Fish::Youtube::Get->qualities, $T->ask ],
+
+    types => ALLOW_SYNC ? 
+        [ Fish::Youtube::Get->types ] :
+        [ Fish::Youtube::Get->types, $T->ask ],
 
     is_tolerant_about_quality => 1,
     is_tolerant_about_type => 1,
@@ -497,8 +502,6 @@ sub row_activated {
 
     my $ok = init_download($u, $t, $mid);
 
-    # otherwise restored within init_download
-    normal_cursor $W;
 }
 
 sub init_download {
@@ -514,10 +517,14 @@ sub init_download {
         return;
     }
     
+    set_cursor($W, 'watch');
+
     $G->download_successful->{$mid} = 0;
     $G->auto_launched->{$mid} = 0;
 
     $title ||= 'manual download';
+
+    #$title = 'a really really really really really really really really really really really long title';
 
     my $download_comp = Fish::Youtube::Components::Download->new(
         title => $title,
@@ -527,14 +534,14 @@ sub init_download {
     $G->download_comp->{$mid} = $download_comp;
 
     # main eventbox for comp
-    my $download_comp_container = $download_comp->container;
+    my $download_comp_widget = $download_comp->widget;
 
     my $height_box = $download_comp->height;
 
     $G->last_idx_inc;
     my $idx = $G->last_idx;
 
-    $W_ly->right->put($download_comp_container, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
+    $W_ly->right->put($download_comp_widget, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
 
     update_scroll_area(+1);
 
@@ -554,7 +561,7 @@ sub init_download {
     my $async = 1;
     $async = 0 unless $prefq && $preft;
 
-    set_cursor($W, 'watch') unless $async;
+    set_cursor($W, 'watch') if ALLOW_SYNC and ! $async;
 
     # can go
     $W_ly->right->show_all;
@@ -565,9 +572,10 @@ sub init_download {
     }
 
     redraw();
+    timeout 300, sub { normal_cursor $W };
 
-    # Want the redraws to happen immediately.
-    timeout 500, sub { 
+    # Want the redraws to happen immediately, can force render like this.
+    timeout $DELAY_START_DOWNLOAD, sub { 
         start_download($mid, $title, $u, $idx, $download_comp, $async, $prefq, $preft, $itaq, $itat);
         return 0;
     }
@@ -578,10 +586,10 @@ sub start_download {
     my ($mid, $title, $u, $idx, $download_comp, $async, $prefq, $preft, $itaq, $itat) = @_;
 
     # manual download -- get name from youtube-get
-    # XX
     # if any prompting, we can't know outfile. 
     # also if async, we can't know it.
     # always overwrite if async.
+
     my $manual;
     $manual = 1 unless $title;
 
@@ -987,7 +995,6 @@ sub download_finished {
     my ($mid) = @_;
     download_stopped($mid);
 
-    #$_->destroy, undef $_ for $G->controls->{$mid}, list $G->size_label->{$mid};
     $G->download_successful->{$mid} = 1;
 
 }
@@ -1012,7 +1019,7 @@ sub remove_download_entry {
 
     my $idx = $d->idx;
 
-    my $ib = $d->component->container;
+    my $widg = $d->component->widget;
 
     # This will cancel the animation loop. Then we erase the stuff and do
     # one last redraw.
@@ -1025,15 +1032,14 @@ sub remove_download_entry {
         if ($j > $idx) {
             $d->idx_dec;
 
-            #my $box = $G->info_box->{$d->id};
-            my $box = $d->component->container;
+            my $box = $d->component->widget;
 
             # shift up
             $W_ly->right->move($box, $INFO_X, $RIGHT_PADDING_TOP + $d->idx * ($HP + $RIGHT_SPACING_V));
         }
     }
     
-    $ib->destroy;
+    $widg->destroy;
 
     update_scroll_area(-1);
 
@@ -1173,12 +1179,6 @@ sub inject_movie_dialog {
 
     return $response;
 }
-
-#sub remove_wait_label {
-#    my ($mid) = @_;
-#    $G->is_waiting->{$mid} = 0;
-#    $W_sb->main->pop($mid);
-#}
 
 sub movie_panic_while_waiting {
     my ($mid, $errstr) = @_;
@@ -1420,8 +1420,8 @@ sub get_q_and_t_dialog {
     my $idx_ask_q = -1 + scalar list $G->qualities;
     my $idx_ask_t = -1 + scalar list $G->types;
 
-    my ($boxq, $combo_boxq) = make_list_choice($G->qualities, $T->pq1);
-    my ($boxt, $combo_boxt) = make_list_choice($G->types, $T->pt1);
+    my ($boxq, $combo_boxq) = make_list_choice($G->qualities, $T->pq2);
+    my ($boxt, $combo_boxt) = make_list_choice($G->types, $T->pt2);
 
     $combo_boxq->set_active($G->preferred_quality);
     $combo_boxt->set_active($G->preferred_type);
@@ -1472,9 +1472,12 @@ sub get_q_and_t_dialog {
 
     my $vb = Gtk2::VBox->new(0);
     $vb->add($boxq);
-    $vb->add($fb_cb_q);
+    ALLOW_SYNC and $vb->add($fb_cb_q);
     $vb->add($boxt);
-    $vb->add($fb_cb_t);
+    ALLOW_SYNC and $vb->add($fb_cb_t);
+
+    my $l = $L->new($T->overwrite, { size => 'small' });
+    $vb->add($l);
 
     $c->add($vb);
 
