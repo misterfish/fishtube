@@ -56,6 +56,7 @@ sub max;
 my $HIDING;
 
 my $IMAGES_DIR = $main::bin_dir . '/../images';
+my $RC_DIR = $main::bin_dir . '/../rc';
 
 -d $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "doesn't exist.";
 -r $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "not readable";
@@ -236,6 +237,16 @@ sub init {
 
     my ($class, $od, $opt) = @_;
     $opt //= {};
+
+    my $rc_file = "$RC_DIR/gtkrc";
+    if (! -e $rc_file) {
+        war "Can't open rc file:", $rc_file;
+    }
+    else {
+        # Don't know if successful.
+        # Status bar should be 'smooth'.
+        Gtk2::Rc->parse($rc_file);
+    }
 
     my $od_ask;
     if ($od) {
