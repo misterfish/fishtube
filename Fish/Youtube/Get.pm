@@ -224,7 +224,9 @@ sub BUILD {
     my $res = $self->ua->get($self->url);
 
     if (!$res->is_success) {
-        $self->err("Can't get avail:", Y $res->status_line );
+        my $s = $res->status_line;
+        my $t = $s ? ": " . Y $s : '.';
+        $self->err($t);
         return;
     }
 

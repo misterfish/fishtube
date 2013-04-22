@@ -337,15 +337,22 @@ sub _start_download {
         );
 
         $get = Fish::Youtube::Get->new(@init);
-        # start
-        my $ok = $get->get;
 
-        if (!$ok) {
-            $errstr = $get->errstr;
+        if ($get->error) {
             $status = 'error';
+            $errstr = $get->errstr;
         }
-        else {
-            $status = 'started';
+        else{
+            # start
+            my $ok = $get->get;
+
+            if (!$ok) {
+                $errstr = $get->errstr;
+                $status = 'error';
+            }
+            else {
+                $status = 'started';
+            }
         }
     }
     else {
