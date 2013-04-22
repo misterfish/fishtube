@@ -114,15 +114,16 @@ sub update {
     for (@$r) {
         my ($url, $date, $title) = @$_;
         $title or next;
-        my ($u, $i) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
-        #D2 'u', $u, 'i', $i;
-        next unless $i;
+        my ($domain, $rest) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
+        #D2 'domain', $domain, 'rest', $rest;
+        next unless $rest;
         {
-            my @s = split /\./, $u;
+            my @s = split /\./, $domain;
             next if @s == 3 and $s[0] ne 'www';
         }
-        next if $u and $u ne 'www.youtube.com';
-        next if $i =~ m|^/results|;
+        next if $domain and $domain ne 'www.youtube.com';
+        next if $rest =~ m|^/results|;
+        next if $rest =~ m|^/user|;
         push @d, new_movie($url, $date, $title);
     }
 

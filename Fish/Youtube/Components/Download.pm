@@ -71,6 +71,11 @@ has title => (
     isa => 'Str',
 );
 
+has _is_destroyed => (
+    is  => 'rw',
+    isa => 'Bool',
+);
+
 has _is_started => (
     is  => 'rw',
     isa => 'Bool',
@@ -118,7 +123,7 @@ sub BUILD {
 
     # add puntjes to waiting msg
     timeout $PUNTJES_TIMEOUT, sub {
-        return 0 if $self->_is_started;
+        return 0 if $self->_is_started or $self->_is_destroyed;
 
         my $msg = $self->_wait_msg;
         $msg .= '.';
@@ -129,6 +134,12 @@ sub BUILD {
     };
 
     $eb->show_all;
+}
+
+sub destroy { 
+    my ($self) = @_;
+    $self->widget->destroy;
+    $self->_is_destroyed(1);
 }
 
 sub started {

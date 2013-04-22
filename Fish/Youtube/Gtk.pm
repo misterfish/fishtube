@@ -552,6 +552,22 @@ sub init_download {
     $G->last_idx_inc;
     my $idx = $G->last_idx;
 
+    # $D class keeps track.
+
+    $D->new(
+        # main id = mid
+        id      => $mid,
+
+        # id of drawn component in list. 
+        # Will change when something is deleted.
+        idx     => $idx,
+
+        component => $download_comp,
+
+        #getter => $get,
+        #title   => $title,
+    );
+
     $W_ly->right->put($download_comp_widget, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
 
     update_scroll_area(+1);
@@ -620,7 +636,7 @@ warn 'not implemented';
 
     if ($status eq 'error') {
         war "Error in download.";
-        warn $errstr if $errstr;
+        warn "Errstr: $errstr" if $errstr;
 
         movie_panic_while_waiting($mid, $errstr);
 
@@ -632,21 +648,10 @@ warn 'not implemented';
         return;
     }
 
-    my $d = $D->new(
-        # main id = mid
-        id      => $mid,
-
-        # id of drawn component in list. 
-        # Will change when something is deleted.
-        idx     => $idx,
-
-        component => $download_comp,
-
-        # Get object
-        getter => $get,
-
-        title   => $title,
-    );
+    my $d = $D->get($mid) or warn, return;
+    # Get object
+    $d->getter($get);
+    $d->title($title);
 
     my $size;
 
@@ -713,7 +718,8 @@ sub download_started {
         cb_delete_file => sub {
             $of or return;
             main::delete_file($of) or return;
-            remove_download_entry($mid);
+            # remove_download_entry called through timeout somewhere.
+            #remove_download_entry($mid);
         },
     );
 
@@ -1020,15 +1026,16 @@ sub remove_download_entry {
 
     my $d = $D->get($mid) or warn, return;
 
+    my $download_comp;
+
+    $download_comp = $d->component or warn, return;
+
     my $idx = $d->idx;
 
-    my $widg = $d->component->widget;
-
-    # This will cancel the animation loop. Then we erase the stuff and do
+    # This will cancel the animation loop (if started). Then we erase the stuff and do
     # one last redraw.
     $d->delete;
 
-    $G->last_idx_dec;
     # decrease idx of later dls by 1
     for my $d ($D->all) {
         my $j = $d->idx;
@@ -1042,7 +1049,8 @@ sub remove_download_entry {
         }
     }
     
-    $widg->destroy;
+    $G->last_idx_dec;
+    $download_comp->destroy;
 
     update_scroll_area(-1);
 

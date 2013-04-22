@@ -245,7 +245,7 @@ sub BUILD {
 
     my $data = $self->extract_urls(\$c);
     if (!$data) {
-        $self->err("Couldn't get avail.");
+        $self->err("Couldn't open connection.");
         return;
     }
     $self->d2('data', $data);
@@ -578,7 +578,7 @@ sub extract_urls {
         $c =~ /"url_encoded_fmt_stream_map": "([^"]*)"/;
         my $u = $1;
         if (!$u) {
-            D 'Failed content', $c;
+            $self->d2('Failed content', $c);
             $self->err("Couldn't find url_encoded_fmt_stream_map in content.");
             return;
         }

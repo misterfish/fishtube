@@ -35,9 +35,15 @@ has idx => (
     },
 );
 
+# getter and title set after object build.
 has getter => (
     is => 'rw',
     isa => "Fish::Youtube::Get",
+);
+
+has title => (
+    is  => 'rw',
+    isa => 'Str',
 );
 
 has component => (
@@ -48,12 +54,6 @@ has component => (
 has size => (
     is  => 'rw',
     isa => 'Int',
-);
-
-has title => (
-    is  => 'ro',
-    isa => 'Str',
-    required => 1,
 );
 
 has is_drawing => (
