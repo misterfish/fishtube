@@ -535,8 +535,6 @@ sub init_download {
 
     $title ||= 'manual download';
 
-    #$title = 'a really really really really really really really really really really really long title';
-
     my $download_comp = Fish::Youtube::Components::Download->new(
         title => $title,
         mid => $mid,
@@ -559,13 +557,10 @@ sub init_download {
         id      => $mid,
 
         # id of drawn component in list. 
-        # Will change when something is deleted.
+        # will change when something is deleted.
         idx     => $idx,
 
         component => $download_comp,
-
-        #getter => $get,
-        #title   => $title,
     );
 
     $W_ly->right->put($download_comp_widget, $INFO_X, $RIGHT_PADDING_TOP + $idx * ($height_box + $RIGHT_SPACING_V));
@@ -783,15 +778,21 @@ sub download_started {
 sub auto_start_watching {
     my ($mid, $cur_size_r, $size, $file) = @_;
 
-    $G->auto_launched->{$mid} and return 0;
+    #$G->auto_launched->{$mid} and return 0;
 
-    if ($G->auto_start_watching) {
-        if ($$cur_size_r / $size * 100 > $AUTO_WATCH_PERC) {
-            $G->auto_launched->{$mid} = 1;
+    my $past_thres = $$cur_size_r / $size * 100 > $AUTO_WATCH_PERC;
+
+    if ($past_thres) {
+        # box is checked
+        if ($G->auto_start_watching) {
             main::watch_movie($file);
+            #$G->auto_launched->{$mid} = 1;
         }
+        return 0;
     }
-    return 1;
+    else {
+        return 1;
+    }
 }
 
 sub file_progress {

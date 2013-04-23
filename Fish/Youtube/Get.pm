@@ -499,7 +499,8 @@ sub get_go {
                     return;
                 }
 
-                return unless $self->headers_ok($headers_r);
+                #return unless $self->headers_ok($headers_r);
+                $buf or return;
 
                 syswrite $fh, $buf or do {
                     my ($space, $part) = free_space $of;
