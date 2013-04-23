@@ -23,8 +23,6 @@ use Time::HiRes 'time';
 use File::stat;
 use File::Basename;
 
-use Math::Trig ':pi';
-
 use Fish::Gtk2::Label;
 my $L = 'Fish::Gtk2::Label';
 
@@ -167,10 +165,8 @@ my $Output_dir;
 
 my $G = o(
 
-    # inited then calculated
-    height => $HEIGHT,
-    # calculated
-    width => -1,
+    height => $HEIGHT, # inited then calculated
+    width => -1, # calculated
 
     # for prog
     stats => {},
@@ -180,14 +176,11 @@ my $G = o(
     init => 0,
     last_mid_in_statusbar => -1,
 
-    # two ways to use hashes, bit different possibilities
+    # other way to use hash.
     '%img' => {},
 
     download_comp => {},
     movies_list_comp => undef,
-
-    auto_launched => {},
-    download_successful => {},
 
     # auto add methods last_xxx_inc, last_xxx_dec.
     '+-last_mid' => -1,
@@ -530,9 +523,6 @@ sub init_download {
     
     set_cursor($W, 'watch');
 
-    $G->download_successful->{$mid} = 0;
-    $G->auto_launched->{$mid} = 0;
-
     $title ||= 'manual download';
 
     my $download_comp = Fish::Youtube::Components::Download->new(
@@ -778,15 +768,12 @@ sub download_started {
 sub auto_start_watching {
     my ($mid, $cur_size_r, $size, $file) = @_;
 
-    #$G->auto_launched->{$mid} and return 0;
-
     my $past_thres = $$cur_size_r / $size * 100 > $AUTO_WATCH_PERC;
 
     if ($past_thres) {
         # box is checked
         if ($G->auto_start_watching) {
             main::watch_movie($file);
-            #$G->auto_launched->{$mid} = 1;
         }
         return 0;
     }
@@ -1003,9 +990,6 @@ sub download_stopped {
 sub download_finished {
     my ($mid) = @_;
     download_stopped($mid);
-
-    $G->download_successful->{$mid} = 1;
-
 }
 
 sub cancel_and_remove_download {
