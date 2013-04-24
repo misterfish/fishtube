@@ -469,6 +469,8 @@ sub get_go {
     if ($self->mode eq 'eventloop') {
         # Uses glib mainloop for 'async' get.
 
+D 'request_hdr', datadump \%request_hdr;
+
         http_get $url, 
         
             headers => \%request_hdr,
@@ -476,16 +478,24 @@ sub get_go {
             on_header => sub {
                 my ($hdr) = @_;
                 my $status = $hdr->{Status};
-                if ($resume and $status == 200) {
-                    # resume failed, should be 2xx
+                return unless $self->headers_ok($hdr);
+                if ($resume && $status == 200) {
+                    # resume failed
                     truncate $fh, 0;
                     # last 0 means abs
                     sysseek $fh, 0, 0;
                 }
-                # err will get caught anyway
+                # resume ok, or no resume attempted (so seek is 0).
                 else {
-                    # last 0 means abs
-                    $seek != 0 and D2 'seeking to', $seek;
+#test
+#truncate $fh, 0;
+#$seek = 0;
+
+D 'status', $status;
+D 'resume', $resume;
+D 'seek', $seek;
+
+                    $seek != 0 and $self->d2('seeking to', $seek);
                     sysseek $fh, $seek, 0;
                 }
             },

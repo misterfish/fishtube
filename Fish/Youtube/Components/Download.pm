@@ -31,11 +31,6 @@ has mid => (
     isa => 'Int',
 );
 
-## The id for placing the component in the list. Changes if stuff is deleted.
-## Matches 
-#has idx => (
-#);
-
 has _label_waiting => (
     is  => 'rw',
     isa => 'Gtk2::Label',
@@ -251,8 +246,6 @@ sub started {
         $self->cb_watch_movie->();
     });
 
-    #remove_wait_label($mid);
-
     set_cursor_timeout $main, 'hand2';
     
     $main->show_all;
@@ -349,8 +342,5 @@ sub finished {
         $c->hide;
     };
 }
-
-    #$_->hide for $G->controls->{$mid}, list $G->size_label->{$mid};
-
 
 1;
