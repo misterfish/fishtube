@@ -5,6 +5,8 @@ use 5.10.0;
 use Moose;
 use Fish::Youtube::Utility;
 
+my $LOPTS = { size => 'small' };
+
 has _pixmap => (
     is  => 'rw',
     isa => 'Gtk2::Gdk::Pixmap',
@@ -29,6 +31,11 @@ has widget => (
 has mid => (
     is  => 'ro',
     isa => 'Int',
+);
+
+has _label_title => (
+    is  => 'rw',
+    isa => 'Gtk2::Label',
 );
 
 has _label_waiting => (
@@ -64,6 +71,7 @@ has cb_delete_file => (
 has title => (
     is  => 'ro',
     isa => 'Str',
+    writer => '_set_title',
 );
 
 has _is_destroyed => (
@@ -169,8 +177,9 @@ sub started {
     my $c4 = $c1;
 
     # title
-    my $l1 = $L->new($self->title, { size => 'small' });
+    my $l1 = $L->new($self->title, $LOPTS);
     $l1->modify_fg('normal', $c1);
+    $self->_label_title($l1);
 
     # cur_size
     my $l2 = $L->new;
@@ -341,6 +350,14 @@ sub finished {
 
         $c->hide;
     };
+}
+
+sub change_title {
+    my ($self, $title) = @_;
+    $self->_set_title($title);
+    if (my $l = $self->_label_title) {
+        $l->set_label($title, $LOPTS);
+    }
 }
 
 1;

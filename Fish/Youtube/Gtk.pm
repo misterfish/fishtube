@@ -523,10 +523,8 @@ sub init_download {
     
     set_cursor($W, 'watch');
 
-    $title ||= 'manual download';
-
     my $download_comp = Fish::Youtube::Components::Download->new(
-        title => $title,
+        title => $title || 'manual download',
         mid => $mid,
     );
 
@@ -558,8 +556,6 @@ sub init_download {
     update_scroll_area(+1);
 
     state $first = 1;
-
-    my $manual;
 
     my $prefq = $G->qualities->[$G->preferred_quality];
     my $preft = $G->types->[$G->preferred_type];
@@ -636,7 +632,7 @@ warn 'not implemented';
     my $d = $D->get($mid) or warn, return;
     # Get object
     $d->getter($get);
-    $d->title($title);
+    $d->title($title) if $title;
 
     my $size;
 
@@ -687,14 +683,16 @@ sub download_started {
 
     D2 'got md', 'name', $of, 'size', $size;
 
-    if ($manual) {
-        $title = basename $of;
-        $title =~ s/\.\w+$//;
-    }
-
     my $d = $D->get($mid) or warn, return;
 
     my $download_comp = $G->download_comp->{$mid} or warn, return;
+
+    if ($manual) {
+        $title = basename $of;
+        $title =~ s/\.\w+$//;
+        $download_comp->change_title($title);
+    }
+
     $download_comp->started(
         file_size => $size,
         cb_watch_movie => sub {
