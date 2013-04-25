@@ -454,8 +454,10 @@ sub get_go {
     }
     sys qq, touch "$of" ,;
 
+    my $op = $resume ? '>>' : '>';
+
     # will die on error, has been checked above
-    my $fh = safeopen ">$of";
+    my $fh = safeopen "$op$of";
 
     $self->error and warn, return;
 
@@ -468,8 +470,6 @@ sub get_go {
     $self->d2('url', $url);
     if ($self->mode eq 'eventloop') {
         # Uses glib mainloop for 'async' get.
-
-D 'request_hdr', datadump \%request_hdr;
 
         http_get $url, 
         
@@ -487,14 +487,6 @@ D 'request_hdr', datadump \%request_hdr;
                 }
                 # resume ok, or no resume attempted (so seek is 0).
                 else {
-#test
-#truncate $fh, 0;
-#$seek = 0;
-
-D 'status', $status;
-D 'resume', $resume;
-D 'seek', $seek;
-
                     $seek != 0 and $self->d2('seeking to', $seek);
                     sysseek $fh, $seek, 0;
                 }
