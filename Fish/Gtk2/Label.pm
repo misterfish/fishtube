@@ -48,9 +48,7 @@ sub set_label {
     my $s1 = '';
     my $s2 = '';
 
-    # ignore size -- do it with rc
     my $ss = $size ? qq|size="$size"|  : '';
-    #my $ss = '';
     my $sc = $color ? qq|color="$color"| : '';
     my @s = ($ss, $sc);
 

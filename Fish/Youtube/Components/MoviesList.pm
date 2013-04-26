@@ -64,7 +64,8 @@ sub BUILD {
 
     # is a Treeview
     my $tree = Gtk2::SimpleList->new(
-        '' => 'text',
+        # text w/pango
+        '' => 'markup',
     );
     $tree->set_headers_visible(0);
     $self->_set_widget($tree);
@@ -179,7 +180,7 @@ sub update_movie_tree {
 
         my $mid = $G->get_mid;
 
-        push @$data_magic, $t;
+        push @$data_magic, qq, <span size="small">$t</span> ,;
         push_r $self->_data, { mid => $mid, url => $u, title => $t};
 
         # first in buffer is last

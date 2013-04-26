@@ -1,6 +1,6 @@
 #!/bin/bash
 
-find Fish/Youtube/bin/* Fish/Youtube | xargs vi 
+find Fish | xargs vi 
 
 
 reset
