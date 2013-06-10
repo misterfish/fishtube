@@ -1,8 +1,11 @@
-First, you need perl > 5.10.0. (Check with perl -v). You can do it via the
-package manager. If you don't have a package manager or don't have sudo, you
-have to build perl yourself, which is too complicated to describe here.
+You can install everything via the package manager (easier) or manual
+compile (harder).
 
-You will probably also want mplayer. (Package 'mplayer' in debian). 
+It's also possible without sudo but more complicated. 
+
+First, you need perl > 5.10.0. (Check with perl -v). 
+
+Then:
 
 PACKAGE-BASED INSTALL (best)
 ---------------------
@@ -16,15 +19,15 @@ PACKAGE-BASED INSTALL (best)
     libmoose-perl
     libproc-processtable-perl
     libproc-syncexec-perl
+    libanyevent-perl
+    libanyevent-http-perl
+    libdbd-sqlite3-perl
+    mplayer
     cpanminus
 
   Then:
 
-    sudo cpanminus URI::Escape HTML::Entities LWP::UserAgent Class::Generate
-
-      or 
-
-    cpanminus URI::Escape HTML::Entities LWP::UserAgent Class::Generate
+    sudo cpanminus URI::Escape HTML::Entities LWP::UserAgent Class::Generate DBD::SQLite AnyEvent AnyEvent::HTTP
 
 MANUAL COMPILE / INSTALL, systemwide
 ------------------------
@@ -33,7 +36,7 @@ MANUAL COMPILE / INSTALL, systemwide
     sudo wget -O- http://cpanmin.us | sudo perl - App::cpanminus 
 
   Install modules: (will take a long time)
-    sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent Class::Generate
+    sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent Class::Generate DBD::SQLite AnyEvent AnyEvent::HTTP
 
   Errors can be examined by going to build dir and compiling, e.g.:
   
@@ -45,6 +48,8 @@ MANUAL COMPILE / INSTALL, systemwide
 MANUAL COMPILE / INSTALL, per-user (no sudo)
 ------------------------
 
+  (incomplete:)
+
   Hopefully and probably you already have libgtk2. To check, this might
   work:
     pkg-config --modversion gtk+-2.0
@@ -55,7 +60,7 @@ MANUAL COMPILE / INSTALL, per-user (no sudo)
     wget -O- http://cpanmin.us | perl - -l ~/perl5 App::cpanminus local::lib
 
   Install modules: (will take a long time)
-    cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent Class::Generate
+    sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent Class::Generate DBD::SQLite AnyEvent AnyEvent::HTTP
 
   Errors can be examined by going to e.g.  ~/.cpanm/latest-build/DBI-1.623 and typing 
     perl Makefile.PL
@@ -86,7 +91,7 @@ List of deps:
     Term::ANSIColor
     Time::HiRes
 
-perl module / Debian package
+  perl modules with (Debian) packages
 
     DBI				libdbi-perl
     File::Slurp			libfile-slurp-perl
@@ -95,8 +100,12 @@ perl module / Debian package
     Moose			libmoose-perl
     Proc::ProcessTable		libproc-processtable-perl
     Proc::SyncExec		libproc-syncexec-perl
+    AnyEvent                    libanyevent-perl
+    AnyEvent::HTTP              libanyevent-http-perl
+    DBD::SQLite                 libdbd-sqlite3-perl
+    mplayer                     mplayer
     
-perl modules without Debian packages
+  perl modules without Debian packages
     
     URI::Escape
     HTML::Entities
