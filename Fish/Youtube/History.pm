@@ -94,7 +94,7 @@ sub update {
 
     select url, last_visit_date, title
         from moz_places 
-        where (url like '%youtube.com%' or url like '%youtu.be%') 
+        where (url like '%youtube.com/watch%' or url like '%youtu.be/watch%') 
             $wt 
         order by moz_places.last_visit_date desc limit $num | ;
 
@@ -115,15 +115,21 @@ sub update {
         my ($url, $date, $title) = @$_;
         $title or next;
         my ($domain, $rest) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
-        #D2 'domain', $domain, 'rest', $rest;
-        next unless $rest;
-        {
+
+        D2 'domain', $domain, 'rest', $rest;
+
+        $rest or warn, next;
+
+        # Bad to have nexts here, because could end up with empty list and
+        # that's confusing.
+        if (0) {
             my @s = split /\./, $domain;
             next if @s == 3 and $s[0] ne 'www';
         }
-        next if $domain and $domain ne 'www.youtube.com';
-        next if $rest =~ m|^/results|;
-        next if $rest =~ m|^/user|;
+
+        #next if $domain and $domain ne 'www.youtube.com';
+        #next if $rest =~ m|^/results|;
+        #next if $rest =~ m|^/user|;
         push @d, new_movie($url, $date, $title);
     }
 
