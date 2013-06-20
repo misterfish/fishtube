@@ -72,7 +72,10 @@ if ($opt_d) {
     $Fish::Youtube::Utility::LOG_LEVEL++;
 }
 
-$SIG{__WARN__} = $SIG{__DIE__} = \&Carp::confess if $debug;
+if ($debug) {
+    $SIG{__WARN__} = \&Carp::cluck;
+    $SIG{__DIE__} = \&Carp::confess;
+}
 
 $| = 1;
 
