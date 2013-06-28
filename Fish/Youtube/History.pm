@@ -116,8 +116,6 @@ sub update {
         $title or next;
         my ($domain, $rest) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
 
-        D2 'domain', $domain, 'rest', $rest;
-
         $rest or warn, next;
 
         # Bad to have nexts here, because could end up with empty list and
@@ -130,6 +128,7 @@ sub update {
         #next if $domain and $domain ne 'www.youtube.com';
         #next if $rest =~ m|^/results|;
         #next if $rest =~ m|^/user|;
+#D2 'history', 'url', $url, 'date', $date, 'title', $title;
         push @d, new_movie($url, $date, $title);
     }
 

@@ -24,6 +24,7 @@ BEGIN {
         randint is_int field is_num
         nice_bytes nice_bytes_join o
         unshift_r shift_r pop_r push_r
+        sanitize_pango
 
         free_space 
 
@@ -772,6 +773,12 @@ sub free_space {
         defined $space or warn, return;
         return wantarray ? ($space, $part) : $space;
     }
+}
+
+# ref
+sub sanitize_pango {
+    my $r = shift;
+    $$r =~ s/\&/&amp;/g;
 }
 
 

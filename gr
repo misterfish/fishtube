@@ -1,6 +1,6 @@
 #!/bin/bash
 
-find Fish/Youtube -iname '*.pm' >/tmp/gr
+find Fish -iname '*.pm' >/tmp/gr
 find Fish/Youtube/bin ! -iname '*.sw?' >>/tmp/gr
 
 while read r; do egrep -Hi --color=always "$@" "$r"; done < /tmp/gr

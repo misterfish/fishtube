@@ -2,6 +2,8 @@ package Fish::Gtk2::Label;
 
 use Gtk2;
 
+use Fish::Youtube::Utility;
+
 use strict;
 use warnings;
 
@@ -59,9 +61,7 @@ sub set_label {
 
     my $markup = $s1 . $text . $s2;
 
-#D 'markup', $markup;
-
-    $markup =~ s/\&/&amp;/g;
+    sanitize_pango(\$markup);
 
     my ($al, $txt, $accel_char) = Pango->parse_markup($markup);
     $self->set_attributes($al);

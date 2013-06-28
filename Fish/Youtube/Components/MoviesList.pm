@@ -163,10 +163,12 @@ sub update_movie_tree {
         for (@m) {
             my ($u, $t) = ($_->{url}, $_->{title});
             $u eq $last and last;
+            D2 'pushing movie', d $_;
             push @n, $_;
         }
     }
     else {
+        D2 'pushing movies', map { d $_ } @m;
         @n = @m;
     }
 
@@ -177,6 +179,9 @@ sub update_movie_tree {
         my ($u, $t) = ($_->{url}, $_->{title});
 
         $t =~ s/ \s* - \s* youtube \s* $//xi;
+
+        D2 'adding title to movieslist', $t;
+        sanitize_pango(\$t);
 
         my $mid = $G->get_mid;
 

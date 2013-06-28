@@ -342,6 +342,8 @@ sub get_size {
     my $url = $self->_movie_url;
     $url or warn, return;
 
+    $self->d2('Checking size for url', $url);
+
     my $cl;
 
     if ($self->mode eq 'eventloop') {

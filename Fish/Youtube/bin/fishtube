@@ -268,7 +268,7 @@ sub start_download_async {
     my $itaq = shift // die;
     my $itat = shift // die;
 
-    D2 'starting async.';
+    D2 'starting async:', 'url', $url;
 
     my $msg = {
         # note that we don't know output_file; Get sets it.
