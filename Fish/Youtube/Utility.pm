@@ -24,7 +24,7 @@ BEGIN {
         randint is_int field is_num
         nice_bytes nice_bytes_join o
         unshift_r shift_r pop_r push_r
-        sanitize_pango
+        sanitize_pango unsanitize_pango
 
         free_space 
 
@@ -83,6 +83,10 @@ sub CY (;$)         { return -t STDOUT ? _color('cyan', @_) : ($_[0] // '') }
 sub Y (;$)          { return -t STDOUT ? _color('yellow', @_) : ($_[0] //
         '') }
 sub RESET           { return -t STDOUT ? _color('reset') : '' }
+
+my %SANITIZE_PANGO = (
+    '&' => '&amp;',
+);
 
 sub disable_colors { 
     $Disable_colors = 1;
@@ -778,7 +782,16 @@ sub free_space {
 # ref
 sub sanitize_pango {
     my $r = shift;
-    $$r =~ s/\&/&amp;/g;
+    while (my ($k, $v) = each %SANITIZE_PANGO) {
+        $$r =~ s/\Q$k\E/$v/g;
+    }
+}
+
+sub unsanitize_pango {
+    my $r = shift;
+    while (my ($k, $v) = each %SANITIZE_PANGO) {
+        $$r =~ s/\Q$v\E/$k/g;
+    }
 }
 
 

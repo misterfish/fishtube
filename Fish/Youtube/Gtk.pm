@@ -504,6 +504,8 @@ sub row_activated {
 
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
+    unsanitize_pango(\$t);
+
     my $ok = init_download($u, $t, $mid);
 
 }
