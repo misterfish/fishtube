@@ -1,0 +1,25 @@
+MANUAL COMPILE / INSTALL, per-user (no sudo)
+------------------------
+
+  (incomplete:)
+
+  Hopefully and probably you already have libgtk2. To check, this might
+  work:
+    pkg-config --modversion gtk+-2.0
+
+  Otherwise installing it per-user is pretty tricky.
+
+  Install 'cpanm':
+    wget -O- http://cpanmin.us | perl - -l ~/perl5 App::cpanminus local::lib
+
+  Install modules: (will take a long time)
+    sudo cpanm DBI File::Slurp Gtk2 HTTP::Cookies Moose Proc::ProcessTable Proc::SyncExec URI::Escape HTML::Entities LWP::UserAgent Class::Generate DBD::SQLite AnyEvent AnyEvent::HTTP
+
+  Errors can be examined by going to e.g.  ~/.cpanm/latest-build/DBI-1.623 and typing 
+    perl Makefile.PL
+    make install
+
+
+
+
+
