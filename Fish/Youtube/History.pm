@@ -128,7 +128,7 @@ sub update {
         #next if $domain and $domain ne 'www.youtube.com';
         #next if $rest =~ m|^/results|;
         #next if $rest =~ m|^/user|;
-#D2 'history', 'url', $url, 'date', $date, 'title', $title;
+        D2 'history', 'url', $url, 'date', $date, 'title', $title;
         push @d, new_movie($url, $date, $title);
     }
 
