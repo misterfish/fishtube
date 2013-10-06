@@ -5,6 +5,11 @@ use 5.10.0;
 use Moose;
 use Fish::Youtube::Utility;
 
+has _workaround_last_movies => (
+    is => 'rw',
+    isa => 'ArrayRef',
+);
+
 has _buf => (
     is => 'rw',
     isa => '',
@@ -105,17 +110,56 @@ sub poll_movies {
         }
     }
 
+    # make new obj for each poll? XX
     my $hist = Fish::Youtube::History->new(
         num_movies => 15,
         profile_dir => $p,
     );
 
-    $hist->update;
-    my $m = $hist->movies;
+    #my $workaround_TRIES = 2;
+    #my $workaround_SLEEP = 1;
+
+=head
+    for my $workaround_i (0 .. $workaround_TRIES) {
+        my $ok = $hist->update;
+        if ($ok == -1) {
+            if ($workaround_i == $workaround_TRIES) {
+                D "workaround MoviesList: still apparently duplicate, going with it.";
+            }
+            else {
+                D "workaround MoviesList: sleep $workaround_SLEEP", 'i',
+                $workaround_i;
+                #sleep $workaround_SLEEP;
+                return 1;
+            }
+        }
+        elsif ($ok == 1) {
+            # ok
+            last;
+        }
+        else {
+            warn;
+            last;
+        }
+    }
+=cut
+
+    my $movies;
+    my $ok_update = $hist->update or warn;
+
+    if ($ok_update == -1) {
+        info 'MoviesList: duplicate title';
+        $movies = $self->_workaround_last_movies;
+    }
+    else {
+        $movies = $hist->movies;
+    }
+
+    $self->_workaround_last_movies($movies);
 
     # no undefined element
-    if (@$m and not grep { not defined } @$m) {
-        $self->set_buf($m);
+    if (@$movies and not grep { not defined } @$movies) {
+        $self->set_buf($movies);
     }
 
     return 1;

@@ -6,10 +6,8 @@ use 5.10.0;
 
 use Moose;
 
-sub error;
-sub war;
-
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility 'error';
 
 #%
 use DBI;
@@ -111,9 +109,24 @@ sub update {
         @d = ({});
     }
 
+    # iceweasel is apparently cloning the last record, then updating it with
+    # a new title. So for a split second, the title field is the title of
+    # the second-to-last record, which is wrong.
+    # Workaround: assume that it's unlikely (but not impossible) for two
+    # consecutive records to have the same title and different urls. If that
+    # happens, return -1, and the caller will sleep and try again.
+
+    my $workaround_last_title;
+
     for (@$r) {
         my ($url, $date, $title) = @$_;
         $title or next;
+
+        if ($workaround_last_title and $title eq $workaround_last_title) {
+            info 'duplicate title found in history';
+            return -1;
+        }
+
         my ($domain, $rest) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
 
         $rest or warn, next;
@@ -130,25 +143,19 @@ sub update {
         #next if $rest =~ m|^/user|;
         D2 'history', 'url', $url, 'date', $date, 'title', $title;
         push @d, new_movie($url, $date, $title);
+
+        $workaround_last_title = $title;
     }
 
     $self->set_movies(\@d);
+
+    return 1;
 }
 
 sub new_movie {
     my ($url, $date, $title) = @_;
     $url and $date and $title or die;
     return { url => $url, date => $date, title => $title };
-}
-
-sub error {
-    my @s = @_;
-    die join ' ', @s, "\n";
-}
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 1;

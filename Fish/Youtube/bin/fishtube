@@ -44,7 +44,6 @@ use Fish::Youtube::History;
 use Fish::Youtube::Get;
 
 sub error;
-sub war;
 
 #%
 
@@ -201,11 +200,6 @@ sub error {
     else {
         die $e;
     }
-}
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 sub make_tmp_dir {

@@ -5,14 +5,12 @@ use 5.10.0;
 
 use Moose;
 
-sub error;
-sub war;
-
 use Math::Trig ':pi';
 
 use Time::HiRes 'sleep';
 
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility 'error';
 
 # arc1 begin
 my @perc1 = (.23, 1);
@@ -254,16 +252,6 @@ sub myrand {
     my ($a, $b) = @_;
     $a < $b or die;
     $a + rand ($b - $a);
-}
-
-sub error {
-    my @s = @_;
-    die join ' ', @s, "\n";
-}
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 

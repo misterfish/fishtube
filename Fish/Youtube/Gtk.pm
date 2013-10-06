@@ -27,6 +27,7 @@ use Fish::Gtk2::Label;
 my $L = 'Fish::Gtk2::Label';
 
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility 'error';
 
 use Fish::Youtube::Download;
 
@@ -46,8 +47,6 @@ use constant STATUS_MISC => 101;
 use constant ALLOW_SYNC => 0;
 
 sub err;
-sub error;
-sub war;
 sub mess;
 sub max;
 
@@ -964,16 +963,6 @@ sub draw_surface_on_pixmap {
     my $cairo_pixmap = Gtk2::Gdk::Cairo::Context->create($pixmap);
     $cairo_pixmap->set_source_surface($surface, 0,0);
     $cairo_pixmap->paint;
-}
-
-sub error {
-    my @s = @_;
-    die join ' ', @s, "\n";
-}
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 sub max {
