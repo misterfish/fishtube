@@ -149,7 +149,7 @@ sub poll_movies {
 
     if ($ok_update == -1) {
         info 'MoviesList: duplicate title';
-        $movies = $self->_workaround_last_movies;
+        $movies = $self->_workaround_last_movies || [];
     }
     else {
         $movies = $hist->movies;
