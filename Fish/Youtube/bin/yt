@@ -27,10 +27,10 @@ use Proc::ProcessTable;
 
 use Time::HiRes 'sleep';
 use File::stat;
-
+use List::MoreUtils 'any';
 use Getopt::Std;
+
 use Fish::Youtube::Utility;
-sub _ { return RESET }
 
 sub error;
 
@@ -51,7 +51,10 @@ use 5.10.0;
 my %opts;
 getopts('khg:n:u:atflF', \%opts);
 
-$DIR = '/stuff' if sys ('hostname') ~~ ["carajo\n", "boldog\n"];
+{
+    my $hn = fchomp sys('hostname');
+    $DIR = '/stuff' if any { $_ eq $hn } (qw/ casio boldog /);
+}
 
 my $USAGE = "Usage: $0 -k | [-a | -t | -f | -u url] [-l (to log)] [-g gain] [-F to pass force to yt-get] [-n num=1]\n";
 
@@ -111,19 +114,33 @@ elsif ($opts{f}) {
     $opts{u} and die $USAGE;
 
     $Out_file = get_movie_from_fd();
-    D 'out_file', $Out_file;
-    exit 0;
+    if ($Out_file) {
+        info 'out_file', $Out_file;
+        exit 0;
+    }
+    else {
+        info 'no movie found.';
+        exit 1;
+    }
 }
 elsif ($opts{t}) {
     $opts{a} and die $USAGE;
     $opts{f} and die $USAGE;
     $opts{u} and die $USAGE;
     $Out_file = get_movie_from_temp();
-    D 'out_file', $Out_file;
+    if ($Out_file) {
+        info 'out_file', $Out_file;
+        exit 0;
+    }
+    else {
+        info 'no movie found.';
+        exit 1;
+    }
 }
 else {
     # call youtube-get and return name
-    $Out_file = get_movie_from_browser_history();
+    #$Out_file = get_movie_from_browser_history();
+    warn;
 }
 
 exit 0;
@@ -139,7 +156,6 @@ sub get_movie_from_fd {
     chomp $p;
     $p or return;
     my $s = sys qq. ls -l /proc/$p/fd/* | grep deleted ., 0;
-    #$s =~ s|(/.+?\s)| sprintf "%s%s%s", G, $1, _ |eg;
 
     # throw the last one into xclip
     while ($s =~ s| (\S+) ( \s -> \s )(/tmp/Flash\S+)| Y($1) . $2 . BR($3) |xeg) {
@@ -209,12 +225,6 @@ sub error {
         }
     }
     die join ' ', @_, "\n";
-}
-
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 sub get_proc_with_ppid {

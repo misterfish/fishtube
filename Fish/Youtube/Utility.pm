@@ -33,6 +33,7 @@ BEGIN {
         get_color
 
         info ask war war8 
+        fchomp
     /;
 }
 
@@ -838,6 +839,12 @@ sub unsanitize_pango {
     while (my ($k, $v) = each %SANITIZE_PANGO) {
         $$r =~ s/\Q$v\E/$k/g;
     }
+}
+
+sub fchomp {
+    my ($in) = @_;
+    chomp $in;
+    $in;
 }
 
 
