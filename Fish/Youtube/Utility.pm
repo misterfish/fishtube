@@ -11,6 +11,7 @@ BEGIN {
         sayf RESETR
         bench_start bench_end bench_end_pr bench_pr
         remove_quoted_strings
+        error
     /;
     @EXPORT = qw/
         $CROSS $CHECK
@@ -19,7 +20,7 @@ BEGIN {
         yes_no disable_colors
         list hash pad
         disable_colors
-        R G B BR BB CY Y RESET
+        R BR G BG B BB CY BCY Y BY M BM RESET ANSI GREY
         D d D2 D3 D_QUIET D_RAW DC DC_QUIET
         randint is_int field is_num
         nice_bytes nice_bytes_join o
@@ -30,6 +31,9 @@ BEGIN {
 
         sig timeout set_cursor normal_cursor set_cursor_timeout
         get_color
+
+        info ask war war8 
+        fchomp
     /;
 }
 
@@ -68,21 +72,39 @@ sub D2;
 sub D3;
 sub D_QUIET;
 
+sub info;
+sub ask;
+sub war;
+sub war8;
 sub error;
 
 # ; means optional.
 
-sub R (;$)          { return -t STDOUT ? _color('red', @_) : ($_[0] // '') }
-sub BR (;$)         { return -t STDOUT ? _color('bright_red', @_) : ($_[0]
-        // '') }
-sub G (;$)          { return -t STDOUT ? _color('green', @_) : ($_[0] // '') }
-sub B (;$)          { return -t STDOUT ? _color('blue', @_) : ($_[0] // '') }
-sub BB (;$)         { return -t STDOUT ? _color('bright_blue', @_) : ($_[0]
-    // '')}
-sub CY (;$)         { return -t STDOUT ? _color('cyan', @_) : ($_[0] // '') }
-sub Y (;$)          { return -t STDOUT ? _color('yellow', @_) : ($_[0] //
-        '') }
-sub RESET           { return -t STDOUT ? _color('reset') : '' }
+# ; means optional.
+
+# bright is either bold or a bit lighter.
+sub R (;$)          { return _color('red', @_) }
+sub BR (;$)         { return _color('bright_red', @_) }
+sub G (;$)          { return _color('green', @_) }
+sub BG (;$)         { return _color('bright_green', @_) }
+sub B (;$)          { return _color('blue', @_) }
+sub BB (;$)         { return _color('bright_blue', @_) }
+sub CY (;$)         { return _color('cyan', @_) }
+sub BCY (;$)         { return _color('bright_cyan', @_) }
+sub Y (;$)          { return _color('yellow', @_) }
+sub BY (;$)          { return _color('bright_yellow', @_) }
+sub M (;$)          { return _color('magenta', @_) }
+
+# actually the same as magenta.
+sub BM (;$)          { return _color('bright_magenta', @_) }
+
+# 0 .. 15
+sub ANSI ($;$)   { my $a = shift; return _color("ansi$a", @_) }
+# 0 .. 23
+sub GREY ($;$)   { my $a = shift; return _color("grey$a", @_) }
+
+sub RESET           { return _color('reset') }
+
 
 my %SANITIZE_PANGO = (
     '&' => '&amp;',
@@ -309,7 +331,32 @@ sub datestring {
 
 sub error {
     my @s = @_;
-    die join ' ', @s, "\n";
+    die R '* ', join ' ', @s, "\n";
+}
+
+
+sub war {
+    my @s = @_;
+    warn R '* ', join ' ', @s, "\n";
+}
+
+sub war8 {
+    my @a = @_;
+    utf8::encode $_ for @a;
+    war @a;
+}
+
+sub info {
+    my @s = @_;
+    #warn BB '* ', join ' ', @s, "\n";
+    say BB '* ', join ' ', @s;
+}
+
+sub ask {
+    my @s = @_;
+    #warn M '* ', (join ' ', @s), '?', "\n";
+    local $\ = undef;
+    print M '* ', (join ' ', @s), '? ';
 }
 
 sub find_cdrecord {
@@ -792,6 +839,12 @@ sub unsanitize_pango {
     while (my ($k, $v) = each %SANITIZE_PANGO) {
         $$r =~ s/\Q$v\E/$k/g;
     }
+}
+
+sub fchomp {
+    my ($in) = @_;
+    chomp $in;
+    $in;
 }
 
 
