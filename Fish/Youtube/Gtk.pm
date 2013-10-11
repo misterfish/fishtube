@@ -359,7 +359,7 @@ sub init {
 
     {
         my $auto_start_cb = Gtk2::CheckButton->new('');
-        $auto_start_cb->set_active(1);
+        $auto_start_cb->set_active(main->auto_start_default);
         $auto_start_cb->signal_connect('toggled', sub {
             state $state = 1;
             $state = !$state;

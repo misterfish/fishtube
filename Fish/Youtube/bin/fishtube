@@ -48,6 +48,8 @@ sub war;
 
 #%
 
+my $AUTO_START_DEFAULT = 0;
+
 my $TMP_TMPL = 'fishtubeXXXX';
 
 # force END
@@ -87,6 +89,10 @@ my $Profile_dir;
 my $Output_dir;
 
 sub profile_dir { $Profile_dir }
+
+# need some kind of conf file system XX
+sub auto_start_default { $AUTO_START_DEFAULT }
+
 
 my $G = 'Fish::Youtube::Gtk';
 
@@ -182,8 +188,6 @@ sub set_profile_dir {
     my ($pd) = @_;
     $Profile_dir = $pd;
 }
-
-
 
 # Output_dir can be undef
 $G->init($Output_dir, { profile_ask => $profile_ask });
