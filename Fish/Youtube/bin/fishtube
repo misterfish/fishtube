@@ -38,6 +38,10 @@ use Proc::ProcessTable;
 use Getopt::Std;
 use File::Temp;
 
+# need some kind of conf file system XX
+my $AUTO_START_DEFAULT = 0;
+sub auto_start_default { $AUTO_START_DEFAULT }
+
 use Fish::Youtube::Utility;
 use Fish::Youtube::Gtk;
 use Fish::Youtube::History;
@@ -47,8 +51,6 @@ sub error;
 sub war;
 
 #%
-
-my $AUTO_START_DEFAULT = 0;
 
 my $TMP_TMPL = 'fishtubeXXXX';
 
@@ -89,10 +91,6 @@ my $Profile_dir;
 my $Output_dir;
 
 sub profile_dir { $Profile_dir }
-
-# need some kind of conf file system XX
-sub auto_start_default { $AUTO_START_DEFAULT }
-
 
 my $G = 'Fish::Youtube::Gtk';
 

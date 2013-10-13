@@ -171,7 +171,7 @@ my $G = o(
     # for prog
     stats => {},
 
-    auto_start_watching => 1,
+    auto_start_watching => main::auto_start_default(),
 
     init => 0,
     last_mid_in_statusbar => -1,
@@ -359,7 +359,7 @@ sub init {
 
     {
         my $auto_start_cb = Gtk2::CheckButton->new('');
-        $auto_start_cb->set_active(main->auto_start_default);
+        $auto_start_cb->set_active($G->auto_start_watching);
         $auto_start_cb->signal_connect('toggled', sub {
             state $state = 1;
             $state = !$state;
