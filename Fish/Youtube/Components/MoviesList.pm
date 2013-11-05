@@ -20,6 +20,7 @@ has container => (
     isa => '%',
 );
 
+# set_profile_dir
 has profile_dir => (
     is  => 'rw',
     isa => 'Maybe',
@@ -99,7 +100,6 @@ sub BUILD {
             }
         });
 
-    #my $p;
     my $h = Fish::Youtube::History->new(
         #num_movies => 15,
         num_movies => 3,
@@ -107,7 +107,6 @@ sub BUILD {
         profile_dir => $self->profile_dir,
     );
 
-    #$h->profile_dir($p) if $p = $self->profile_dir;
     $self->_history($h);
 
     timeout $POLL_TIMEOUT, sub {
@@ -258,6 +257,12 @@ sub num_children_in_tree {
     my ($self) = @_;
     my $treeview = $self->_tree;
     return $treeview->get_model->iter_n_children;
+}
+
+sub set_profile_dir {
+    my ($self, $dir) = @_;
+    $self->profile_dir($dir);
+    $self->_history->profile_dir($dir);
 }
 
 1;

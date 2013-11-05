@@ -775,7 +775,8 @@ sub rotate {
     my @list = @$list;
     my $i = -1;
     my (@l, @r);
-    if ($start ~~ $list) {
+    #if ($start ~~ $list) {
+    if (contains @list, $start) {
         for (@list) {
             $i++;
             if ($_ eq $start) {

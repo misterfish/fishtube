@@ -75,7 +75,7 @@ getopts('hp:do:Z');
 my $debug;
 if ($opt_d) {
     $debug = 1;
-    $Fish::Youtube::Utility::LOG_LEVEL++;
+    Fish::Youtube::Utility->debug_level(1);
 }
 
 if ($debug) {

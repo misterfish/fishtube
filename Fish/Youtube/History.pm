@@ -115,6 +115,9 @@ sub update {
 
     my @new;
 
+    # U+25B6 ▶ 
+    my $tri = chr 0x25b6;
+
     while (my $iter = iterr $r) {
         my $i = $iter->k;
         my $data = $iter->v;
@@ -122,12 +125,14 @@ sub update {
         my ($url, $date, $title) = @$data;
         $title or next;
 
+        $title =~ s/ ^ $tri //x;
         if ($i == 0) {
             if (my $last = $self->_last_movie) {
-                if ($title eq $last->{title}) {
-                    say 'AHA', $title;
-                    # could be that one of them has that weird triangle in
-                    # front XX
+                my $lt = $last->{title};
+                $lt =~ s/ ^ $tri //x;
+
+                if ($title eq $lt) {
+                    info 'Detected duplicate firefox thing, waiting';
                     return -1;
                 }
             }

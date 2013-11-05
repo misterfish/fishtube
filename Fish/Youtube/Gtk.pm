@@ -470,7 +470,7 @@ sub init {
         push @init_chain, sub {
             my $pd = profile_dialog($profile_ask);
             main::set_profile_dir($pd);
-            $G->movies_list_comp->profile_dir($pd);
+            $G->movies_list_comp->set_profile_dir($pd);
         };
     }
 
