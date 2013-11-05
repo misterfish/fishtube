@@ -135,6 +135,9 @@ sub update {
                     info 'Detected duplicate firefox thing, waiting';
                     return -1;
                 }
+else {
+info 'unequal', $title, $lt;
+}
             }
 
             $self->_last_update_time(time);
