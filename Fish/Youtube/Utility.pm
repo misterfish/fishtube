@@ -6,79 +6,120 @@ BEGIN {
     use Exporter ();
     @ISA = qw/Exporter/;
     @EXPORT_OK = qw/
+        d
         mywait round 
         get_date get_date_2 
         sayf RESETR
         bench_start bench_end bench_end_pr bench_pr
         remove_quoted_strings
-        error
+            error
     /;
+
     @EXPORT = qw/
-        $CROSS $CHECK
-        sys sys_chomp sys_ok sysl safeopen sys_return_code datadump
-        strip strip_ptr 
-        yes_no disable_colors
-        list hash pad
-        disable_colors
+        sys sys_chomp sys_ok sysl sysll 
+        safeopen sys_return_code datadump
+        debug_level info_level verbose_cmds
+            war warl info ask
+        e8 d8
+
+        is_defined def 
+        unshiftr pushr shiftr popr scalarr keysr eachr
+        contains containsr
+        chompp rl
+        list hash 
+
+        disable_colors force_colors
         R BR G BG B BB CY BCY Y BY M BM RESET ANSI GREY
-        D d D2 D3 D_QUIET D_RAW DC DC_QUIET
-        randint is_int field is_num
-        nice_bytes nice_bytes_join o
-        unshift_r shift_r pop_r push_r
-        sanitize_pango unsanitize_pango
+        D D2 D3 D_QUIET D_RAW D2_RAW DC DC_QUIET
 
-        free_space 
+        slurp slurp8 cat strip strip_ptr 
 
-        sig timeout set_cursor normal_cursor set_cursor_timeout
-        get_color
+        cross check_mark yes_no 
 
-        info ask war war8 
-        fchomp
+        set_debug
+
+        randint is_int is_even is_odd is_num
+        field pad nice_bytes nice_bytes_join comma
+
+        datestring datestring2 get_file_no
+
     /;
 }
 
-use 5.10.0;
+use 5.14.0;
 
 use strict;
 use warnings;
 
 use utf8;
 
-use Gtk2;
-
+use List::Util 'first';
 use Term::ANSIColor;
 use Carp 'confess';
 use Data::Dumper;
 
-use constant _CLASS_GENERATE => 1;
-
-# make simple singleton classes for keeping global space neat and also gives
-# us -> accessors
-use if _CLASS_GENERATE, 'Class::Generate' => 'class';
-
 # for bench
 use Time::HiRes 'time';
 
-our $VERBOSE = 0;
+our $Cmd_verbose = 0;
+our $Debug_level = 0;
+our $Info_level = 1;
 
-our $LOG_LEVEL = 1;
 our $Disable_colors = 0;
+our $Force_colors = 0;
 
-our $CHECK = '✔';
-our $CROSS = '✘';
+our $Check = '✔';
+our $Cross = '✘';
 
 sub D;
 sub D2;
 sub D3;
 sub D_QUIET;
 
-sub info;
-sub ask;
-sub war;
-sub war8;
-sub error;
+sub d8;
+sub e8;
 
-# ; means optional.
+sub error;
+sub war;
+sub info;
+
+sub safeopen;
+sub list;
+
+# - - - 
+sub set_debug {
+    warn "set_debug deprecated";
+    debug_level(@_);
+}
+
+sub set_info_level {
+    warn "set_info_level deprecated";
+    info_level(@_);
+}
+
+sub set_verbose { 
+    warn "set_verbose deprecated";
+    verbose_cmds(@_);
+}
+# - - - 
+
+sub verbose_cmds {
+    shift if $_[0] eq __PACKAGE__;
+    $Cmd_verbose = shift if @_;
+    $Cmd_verbose;
+}
+
+sub info_level {
+    shift if $_[0] eq __PACKAGE__;
+    $Info_level = shift if @_;
+    $Info_level;
+}
+
+sub debug_level {
+    shift if $_[0] eq __PACKAGE__;
+    $Debug_level = shift if @_;
+    $Debug_level;
+}
 
 # ; means optional.
 
@@ -95,6 +136,9 @@ sub Y (;$)          { return _color('yellow', @_) }
 sub BY (;$)          { return _color('bright_yellow', @_) }
 sub M (;$)          { return _color('magenta', @_) }
 
+sub cross { $Cross }
+sub check_mark { $Check }
+
 # actually the same as magenta.
 sub BM (;$)          { return _color('bright_magenta', @_) }
 
@@ -105,18 +149,20 @@ sub GREY ($;$)   { my $a = shift; return _color("grey$a", @_) }
 
 sub RESET           { return _color('reset') }
 
-
-my %SANITIZE_PANGO = (
-    '&' => '&amp;',
-);
-
 sub disable_colors { 
     $Disable_colors = 1;
+    $Force_colors = 0;
+}
+
+sub force_colors {
+    $Force_colors = 1;
+    $Disable_colors = 0;
 }
 
 sub sys_chomp {
     my ($ret, $code) = sys(@_);
-    chomp $ret;
+    # catch more than chomp
+    $ret =~ s/ \s* $//x;
     return wantarray ? ($ret, $code) : $ret;
 }
 
@@ -132,11 +178,10 @@ sub sys {
     my ($command, $arg2, $arg3) = @_;
 
     my ($die, $verbose);
-    
-    my $wants_list;
-    my $kill_err;
 
     my $opt;
+
+    strip_ptr(\$command);
 
     if ( $arg2 and ref $arg2 eq 'HASH' ) {
         $opt = $arg2;
@@ -150,14 +195,17 @@ sub sys {
     }
 
     $die //= 1;
-    $verbose //= $VERBOSE;
+    $verbose //= $Cmd_verbose;
 
-    $wants_list = $opt->{list} // 0;
-    $kill_err = $opt->{killerr} // 0;
+    my $wants_list = $opt->{list} // 0;
+    my $kill_err = $opt->{killerr} // 0;
+    my $utf8 = $opt->{utf8} || $opt->{UTF8} || $opt->{'utf-8'} || $opt->{'UTF-8'} // 0;
+    my $quiet = $opt->{quiet} // 0;
 
     my @out;
     my $out;
     my $ret;
+    my $err;
 
     my $ctxt_list = wantarray && ! $die;
 
@@ -172,24 +220,33 @@ sub sys {
         $out = "[cmd immediately bg'ed, output not available]";
     } 
     else {
-        say "Executing:\n$command" if $verbose;
+        say sprintf "%s %s", G '*', $command if $verbose;
         if ($wants_list) {
-            @out = map { chomp; $_} `$command`;
+            @out = map { 
+                chomp; $utf8 ? d8 $_ : $_
+            } `$command`;
         } else {
             $out = `$command`;
+            utf8::encode $out if $utf8;
         }
         $ret = $?;
+        $err = $!;
     }
-    my $err = $!;
-    if ($ret && $die) {
-        my $out_to_print = $out || join "\n", @out;
-        $err ||= "(no err string)";
-        $out and $err .= " (output: $out)";
-        confess $err;
+
+    if ($ret) {
+        my $e = $err ? 
+            sprintf "Couldn't execute cmd %s: %s", BR $command, BR $err :
+            sprintf "Couldn't execute cmd %s.", BR $command;
+        if ($die) {
+            error $quiet ? $err : $e;
+        }
+        elsif (! $quiet) {
+            war $e;
+        }
     }
 
     # perl thing
-    $ret >>= 8 if defined $ret;
+    $ret >>= 8 if defined $ret and $ret > 0;
 
     if ($wants_list) {
         return $ctxt_list ? (\@out, $ret, $err) : \@out;
@@ -216,6 +273,10 @@ sub sysl {
     ;
 }
 
+sub sysll {
+    list scalar sysl @_;
+}
+
 sub sys_return_code {
     my ($command, @args) = @_;
     # don't die
@@ -230,7 +291,10 @@ sub sys_return_code {
 }
 
 sub sys_ok {
-    return ! sys_return_code(@_);
+    my ($command, @args) = @_;
+    my $opt = ref $args[0] eq 'HASH' ? shift @args : {};
+    $opt->{quiet} = 1;
+    return ! sys_return_code($command, $opt, @args);
 }
 
 sub mywait {
@@ -253,6 +317,20 @@ sub get_date {
 }
 
 
+# 12345 -> 12,345
+sub comma($) {
+    my $n = shift;
+    my @n = reverse split //, $n;
+    my @ret;
+    while (@n > 3) {
+        my @m = splice @n, 0, 3;
+        push @ret, @m, ',';
+    }
+    push @ret, @n;
+    join '', reverse @ret;
+}
+
+
 
 sub round {
     my $s = shift;
@@ -264,10 +342,14 @@ sub round {
     }
 }
 
+# Shouldn't use this for opening commands: difficult or impossible to get
+# error messages when the command exists but fails (e.g. find
+# /non/existent/path)
+
 sub safeopen {
     (scalar @_ < 3) || error("safeopen() called incorrectly");
 
-    my $file = shift or error "Need file for safeopen()";
+    my $file = shift;
 
     my $die;
     my $is_dir;
@@ -275,11 +357,13 @@ sub safeopen {
     my $arg2 = shift;
 
     my $utf8;
+    my $quiet;
     if (ref $arg2 eq 'HASH') {
         # require an arg to open dirs, to avoid mistakes.
         $die = $arg2->{die};
         $is_dir = $arg2->{dir};
         $utf8 = $arg2->{utf8} || $arg2->{UTF8} || $arg2->{'utf-8'} || $arg2->{'UTF-8'};
+        $quiet = $arg2->{quiet} // 0;
     }
     # old form
     else {
@@ -290,7 +374,7 @@ sub safeopen {
 
     if ( -d $file ) {
         if (! $is_dir) {
-            warn "Deprecated -- need opt 'dir => 1' to use safeopen with a dir.";
+            war "Deprecated -- need opt 'dir => 1' to use safeopen with a dir.";
             exit 1;
         }
         if ( opendir my $fh, $file ) {
@@ -311,9 +395,13 @@ sub safeopen {
 
     if ( open my $fh, $file ) {
         binmode $fh, ':utf8' if $utf8;
+        # In the case of a command, could still be an error.
         return $fh;
-    } else {
-        $die and error "Couldn't open filehandle to", R $file, "for", Y $op, "--", R $!;
+    } 
+    else {
+        my @e = ("Couldn't open filehandle to", R $file, "for", Y $op, "--", R $!);
+        $die and error @e;
+        war @e unless $quiet;
         return undef;
     }
 }
@@ -329,58 +417,86 @@ sub datestring {
         $min, $sec);
 }
 
+sub datestring2 { get_date_2(@_) }
+
 sub error {
     my @s = @_;
     die R '* ', join ' ', @s, "\n";
 }
 
-
+# war { opts => }, str1, str2, ...
+# or war str1, str2, ...
+# same for info.
 sub war {
-    my @s = @_;
-    warn R '* ', join ' ', @s, "\n";
+    my ($opts, $string) = _process_print_opts(@_);
+
+    _disable_colors_temp(1) if $opts->{disable_colors};
+
+    utf8::encode $string;
+    warn BR '* ', $string, "\n";
+
+    _disable_colors_temp(0) if $opts->{disable_colors};
 }
 
-sub war8 {
-    my @a = @_;
-    utf8::encode $_ for @a;
-    war @a;
+# A version of war which is guaranteed to return an empty list.
+sub warl {
+    war(@_);
+    ();
+}
+
+# warn with stack trace
+# doesn't pipe through war()
+sub wartrace {
+    my $w = join ' ', BR '*', @_;
+    utf8::encode $w;
+    Carp::cluck($w);
 }
 
 sub info {
-    my @s = @_;
-    #warn BB '* ', join ' ', @s, "\n";
-    say BB '* ', join ' ', @s;
+    return unless $Info_level;
+    my ($opts, $string) = _process_print_opts(@_);
+
+    _disable_colors_temp(1) if $opts->{disable_colors};
+
+    utf8::encode $string;
+    say BB '* ', $string;
+
+    _disable_colors_temp(0) if $opts->{disable_colors};
 }
 
 sub ask {
+    return unless $Info_level;
     my @s = @_;
-    #warn M '* ', (join ' ', @s), '?', "\n";
     local $\ = undef;
     print M '* ', (join ' ', @s), '? ';
 }
 
-sub find_cdrecord {
-    my $DEV_SEARCH = 'FREECOM';
-    local $\ = "\n";
-    if ( `whoami` ne "root\n" ) {
-        print STDERR "find_cdrecord: " . "Must be run as root";
-        return '';
+# common opt processing for info, war, etc.
+sub _process_print_opts {
+    my ($string, $opts);
+    $opts = ref $_[0] eq 'HASH' ? shift : {};
+    my @s;
+    for (@_) {
+        push @s, ref eq 'ARRAY' ? 
+            ( @$_ ? join '|', @$_ : '[empty]' ) :
+            $_;
     }
+    return $opts, join ' ', @s;
+}
 
-    my $cmd = 'cdrecord -scanbus';
-    $_ = `$cmd`;
-    if ($?) {
-        print STDERR "find_cdrecord: " . "Couldn't do: $cmd; $!";
-        return '';
+# 1 -> disable colors, storing value of state
+# 0 -> restore
+sub _disable_colors_temp {
+    my ($s) = @_;
+    state $dc;
+    if ($s) {
+        $dc = $Disable_colors;
+        disable_colors(1);
     }
-
-    my $DEV = (/(\d,\d,\d).+?$DEV_SEARCH/)[0];
-    if ( ! $DEV ) {
-        print STDERR "find_cdrecord: " . "Couldn't find device. Searched for $DEV_SEARCH. Output of $cmd: $_";
-        return '';
+    else {
+        disable_colors($dc);
+        $dc = undef;
     }
-
-    return $DEV;
 }
 
 sub strip_ptr {
@@ -407,24 +523,48 @@ sub yes_no {
         return 0;
     }
     my $opt = shift || {};
+    if (ref $opt eq '') {
+        $opt = 
+            $opt eq 'yes' ? { default_yes => 1 } :
+            $opt eq 'no'  ? { default_no  => 1 } :
+            (warn, return);
+    }
     my $infinite = $opt->{infinite} // 1;
-    my $print = "(y/n) ";
+    my $default_yes = $opt->{default_yes} // 0;
+    my $default_no = $opt->{default_no} // 0;
+
+    if (my $d = $opt->{default}) {
+        $d eq 'no' ?  $default_no = 1 :
+        $d eq 'yes' ? $default_yes = 1 :
+        war ("Unknown 'default' opt given to yes_no()");
+    }
+    my $question = $opt->{question} // $opt->{ask} // '';
+    $default_no and $default_yes and warn, return;
+    my $y = $default_yes ? 'Y' : 'y';
+    my $n = $default_no ? 'N' : 'n';
+    ask "$question" if $question;
+    my $print = "($y/$n) ";
     local $\ = undef;
     while (1) {
         printf "$print";
         my $in = <STDIN>;
-# weird case.        
-#defined $in or return 0;
-        chomp $in;
-        if ($in =~ /^\s*y\s*$/i) {
+        strip_ptr(\$in);
+        if (!$in) {
+            if ($default_yes) {
+                return 1;
+            } 
+            elsif ($default_no) {
+                return 0;
+            }
+        }
+        elsif ($in =~ /^y$/i) {
             return 1;
         }
-        elsif ($in =~ /^\s*n\s*$/i) {
-            #exit 1;
+        elsif ($in =~ /^n$/i) {
             return 0;
         }
-        # not y or n
-        elsif ( ! $infinite) {
+
+        if ( ! $infinite) {
             return 0;
         }
     }
@@ -463,7 +603,7 @@ sub D_QUIET {
 
     my $do_encode_utf8 = $opt->{no_utf8} ? 0 : 1;
 
-    $LOG_LEVEL > 0 or return;
+    $Debug_level > 0 or return;
 
     my @c = (BB, Y);
 
@@ -501,7 +641,12 @@ sub D_QUIET {
 }
 
 sub D_RAW {
-    $LOG_LEVEL > 0 or return;
+    $Debug_level > 0 or return;
+    print D_QUIET({no_utf8 => 1}, @_);
+}
+
+sub D2_RAW {
+    $Debug_level > 1 or return;
     print D_QUIET({no_utf8 => 1}, @_);
 }
 
@@ -514,37 +659,44 @@ sub DC_QUIET {
 }
 
 sub D {
-    $LOG_LEVEL > 0 or return;
-    print D_QUIET(@_);
+    $Debug_level > 0 or return;
+    #print D_QUIET(@_);
+    warn D_QUIET(@_) . "\n";
 }
 
 sub D2 {
-    $LOG_LEVEL > 1 or return;
-    say D_QUIET(@_);
+    $Debug_level > 1 or return;
+    warn D_QUIET(@_) . "\n";
 }
 
 sub D3 {
-    $LOG_LEVEL > 2 or return;
-    say D_QUIET(@_);
+    $Debug_level > 2 or return;
+    warn D_QUIET(@_) . "\n";
 }
 
 sub _color {
     my ($col, @s) = @_;
-    if (@s) {
-        my $s = join '', grep { defined } @s;
+    if (-t STDOUT or $Force_colors) {
+        if (@s) {
+            my $s = join '', grep { defined } @s;
 
-        $Disable_colors and return $s;
+            $Disable_colors and return $s;
 
-        if ($s ne '') {
-            return color($col) . $s . color('reset');
+            if ($s ne '') {
+                return color($col) . $s . color('reset');
+            }
+            else {
+                return color($col);
+            }
         }
         else {
+            $Disable_colors and return;
             return color($col);
         }
     }
     else {
-        $Disable_colors and return;
-        return color($col);
+        my $s = join '', grep { defined } @s;
+        return $s;
     }
 }
 
@@ -561,7 +713,7 @@ sub hash {
 }
 
 sub is_num {
-    local $_ = shift // die;
+    local $_ = shift // (warn, return);
     / ^ -? \d+ (\.\d+)? $/x and return 1;
 }
 
@@ -570,6 +722,19 @@ sub is_int {
     is_num($n) or return 0;
     return $n == int($n);
 }
+
+sub is_even {
+    my $s = shift // die;
+    ( is_num $s and $s >= 0 and is_int $s ) or error "Need non-negative int to is_even";
+    return $s % 2 ? 0 : 1;
+}
+
+sub is_odd {
+    my $s = shift // die;
+    ( is_num $s and $s >= 0 and is_int $s ) or error "Need non-negative int to is_odd";
+    return $s % 2 ? 1 : 0;
+}
+
 
 sub field {
     my ($width, $string, $len) = @_;
@@ -665,22 +830,30 @@ sub _bench {
 sub nice_bytes ($) {
     # bytes
     my $n = shift;
-    if ( $n < 2 ** 10 ) {
+    if ( $n < 1024 ) {
         return sprintf("%d", $n), 'b';
     }
-    elsif ( $n < 2 ** 20 ) {
-        return sprintf("%.1f", $n / 2 ** 10), 'K';
+    elsif ( $n < 1024 ** 2 ) {
+        return sprintf("%.1f", $n / 1024), 'K';
     }
-    elsif ( $n < 2 ** 30) {
-        return sprintf("%.1f", $n / 2 ** 20), 'M';
+    elsif ( $n < 1024 ** 3) {
+        return sprintf("%.1f", $n / 1024 ** 2), 'M';
     }
     else {
-        return sprintf("%.1f", $n / 2 ** 30), 'G';
+        return sprintf("%.1f", $n / 1024 ** 3), 'G';
     }
 }
 
 sub nice_bytes_join ($) {
     return join '', nice_bytes shift;
+}
+
+sub get_file_no {
+    my ($fh) = @_;
+    $fh or war ("fh is undef"), return;
+    my $fn = fileno($fh);
+    my $ok = $fn && $fn != -1;
+    return $ok ? $fn : undef;
 }
 
 sub pad($$) {
@@ -690,119 +863,101 @@ sub pad($$) {
         $str . ' ' x ($length - $l);
 }
 
-# generate anonymous object with -> accessors.
+# bi-dir-pipe:
 
-# e.g.:
-# $obj = o( a=>1, b=>undef, %hash=>{}, hash_ref=>{}, @ary=>[], ary_ref=>[],
-# '+-idx' => -1)
+#use IPC::Open2;
+#my $pid = open2(my $fh_r, my $fh_w, $cmd);
+#print $fh_w $q;
+#close $fh_w;
+#say while <$fh_r>;
 
-sub o {
-    die "generate is disabled" unless _CLASS_GENERATE;
-    state $idx = 0;
-    my %stuff = @_;
-    my $class_name = 'anon' . ++$idx;
-    my (@class_def, @init);
-    while (my ($k, $v) = each %stuff) {
-        my $sigil;
-        my $add_counter_methods;
-        if ($k =~ /^ ( % | @ | \+- ) (.+) /x) {
-            if ($1 eq '+-') {
-                $sigil = '$';
-                $add_counter_methods = 1;
-                $k = $2;
-            }
-            else {
-                $sigil = $1;
-                $k = $2;
-            }
-        }
-        else {
-            $sigil = '$';
-        }
-        push @class_def, $k, $sigil;
-        push @init, $k,  $v;
+sub e8($) {
+    my $s = shift;
+    utf8::encode $s;
+    $s;
+}
 
-        # if var name is e.g. +-idx, this adds magic methods ->idx_inc and
-        # ->idx_dec.
-        if ($add_counter_methods) {
-            # e.g. push @class_def, '&idx_inc' => q{ $idx++ }
-            # man Class::Generate
-            push @class_def, "&${k}_inc", qq{ \$$k++ };
-            push @class_def, "&${k}_dec", qq{ \$$k-- };
-        }
+sub d8($) {
+    my $s = shift;
+    utf8::decode $s;
+    $s;
+}
 
+# e.g. while (is_defined my $a = pop @b) { }
+# no prototype, or else that won't work.
+sub is_defined { defined shift }
+sub def { defined shift }
+
+sub rl {
+    my ($fh) = @_;
+    my $in = <$fh> // return;
+    chomp $in;
+    $in;
+}
+
+sub unshiftr { unshift @{shift @_}, @_ }
+sub pushr { push @{shift @_}, @_ }
+sub shiftr { shift @{shift @_} }
+sub popr { pop @{shift @_} }
+sub scalarr { scalar @{shift @_} }
+sub keysr { keys %{shift @_} }
+
+sub eachr { 
+    my ($r) = @_;
+    return ref $r eq 'ARRAY' ? 
+        each @$r :
+        ref $r eq 'HASH' ?
+        each %$r : 
+        (warn, undef);
+}
+
+# Called as:
+# contains $arrayref, $search
+sub containsr {
+    my ($ary, $search) = @_;
+    first { $_ eq $search } @$ary;
+}
+
+# Called as:
+# contains @array, $search
+sub contains (+$) {
+    my ($ary, $search) = @_; # $ary is indeed a reference
+    return containsr $ary, $search;
+}
+
+
+sub slurp {
+    my ($arg, $opt) = @_;
+    local $/ = undef;
+    if (ref $arg eq 'GLOB') {
+        return <$arg>;
     }
-
-    # class anon1 => [ x => '$', y => '%', ... ];
-    #class $class_name => [ @class_def ];
-    class $class_name => { @class_def };
-
-    my $obj = $class_name->new(@init);
-
-    return $obj;
-}
-
-sub unshift_r { unshift @{shift @_}, @_ };
-sub push_r { push @{shift @_}, @_ };
-sub shift_r { shift @{shift @_} };
-sub pop_r { pop @{shift @_} };
-
-## GTK specific
-sub sig {
-    my ($w, $sig, $sub) = @_;
-    $w->signal_connect($sig, $sub);
-}
-
-sub timeout {
-    my ($time, $sub) = @_;
-
-    # Timeouts are called outside of the main lock loop and so you need to
-    # put enter/leave around them.
-
-    my $new = sub {
-        Gtk2::Gdk::Threads->enter;
-        # always scalar -- return is 0 or 1
-        my $r = $sub->(@_);
-        Gtk2::Gdk::Threads->leave;
-        $r;
-    };
-    Glib::Timeout->add($time, $new);
-}
-
-sub set_cursor_timeout {
-    shift if $_[0] eq __PACKAGE__;
-    my ($widget, $curs) = @_;
-    timeout(50, sub { 
-        return ! set_cursor($widget, $curs) 
-    } );
-}
-
-
-sub set_cursor {
-
-    my ($widget, $curs) = @_;
-    if (my $w = $widget->window) {
-        $w->set_cursor(Gtk2::Gdk::Cursor->new($curs));
-        return 1;
+    else {
+        # caller can set no_die in opt
+        my $fh = safeopen $arg, $opt or warn, return;
+        return <$fh>;
     }
-    return 0;
 }
 
-sub normal_cursor {
-    my ($w) = shift;
-    set_cursor($w, 'left-ptr');
+sub slurp8 {
+    my ($arg, $opt) = @_;
+    $opt ||= {};
+    $opt->{utf8} = 1;
+    return slurp($arg, $opt);
 }
 
-# 0-255
-sub get_color {
-    shift if $_[0] eq __PACKAGE__;
-    my ($r, $g, $b, $a) = @_;
-    for ($r, $g, $b, $a) {
-        $_ > 255 and die;
-        $_ < 0 and die;
-        $_ *= 257;
-    }
-    Gtk2::Gdk::Color->new($r, $g, $b, $a);
+sub cat {
+    my $file = shift;
+    my $fh = safeopen $file, { die => 0 } or warn, return;
+    local $/ = undef;
+    my $a = <$fh>;
+    say $a;
+}
+
+sub chompp(_) {
+    my ($s) = @_;
+    chomp $s;
+    $s;
 }
 
 sub free_space {
@@ -824,27 +979,6 @@ sub free_space {
         defined $space or warn, return;
         return wantarray ? ($space, $part) : $space;
     }
-}
-
-# ref
-sub sanitize_pango {
-    my $r = shift;
-    while (my ($k, $v) = each %SANITIZE_PANGO) {
-        $$r =~ s/\Q$k\E/$v/g;
-    }
-}
-
-sub unsanitize_pango {
-    my $r = shift;
-    while (my ($k, $v) = each %SANITIZE_PANGO) {
-        $$r =~ s/\Q$v\E/$k/g;
-    }
-}
-
-sub fchomp {
-    my ($in) = @_;
-    chomp $in;
-    $in;
 }
 
 

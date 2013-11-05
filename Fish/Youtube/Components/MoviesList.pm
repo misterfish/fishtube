@@ -4,6 +4,11 @@ use 5.10.0;
 
 use Moose;
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility 'd'; 
+use Fish::Youtube::Utility::Gtk;
+
+#my $POLL_TIMEOUT = 1000;
+my $POLL_TIMEOUT = 500;
 
 has _buf => (
     is => 'rw',
@@ -33,6 +38,11 @@ has _tree => (
     isa => 'Gtk2::SimpleList',
 );
 
+has _history => (
+    is => 'rw',
+    isa => 'Fish::Youtube::History',
+);
+
 has cb_row_activated => (
     is  => 'ro',
     isa => 'CodeRef',
@@ -53,6 +63,12 @@ has _data => (
     is  => 'rw',
     isa => 'ArrayRef',
     default => sub {[]},
+);
+
+# ff bug
+has _dont_update_tree => (
+    is  => 'rw',
+    isa => 'Bool',
 );
 
 my $G = 'Fish::Youtube::Gtk';
@@ -83,39 +99,50 @@ sub BUILD {
             }
         });
 
-    timeout 1000, sub {
+    #my $p;
+    my $h = Fish::Youtube::History->new(
+        #num_movies => 15,
+        num_movies => 3,
+        # can be undef
+        profile_dir => $self->profile_dir,
+    );
+
+    #$h->profile_dir($p) if $p = $self->profile_dir;
+    $self->_history($h);
+
+    timeout $POLL_TIMEOUT, sub {
         $self->poll_movies;
         $self->update_movie_tree;
         return 1;
     }
-
 }
 
 sub poll_movies {
     my ($self) = @_;
 
-    my $p = $self->profile_dir;
-    if (! $p) {
-        if (my $q = main->profile_dir) {
-            $self->profile_dir($q);
-            $p = $q;
-        }
-        else {
+    my $hist = $self->_history;
+
+    if (my $u = $hist->update) {
+        if ($u == -1) {
+            # special for ff bug
+            $self->_dont_update_tree(1);
             return 1;
         }
+        else {
+            $self->_dont_update_tree(0);
+        }
+        my $m = $hist->movies;
+        my @copy = list $hist->movies;
+
+        ## no undefined element
+        #if (@copy and not grep { not defined } @copy) {
+        #$self->set_buf(\@copy);
+        #}
+        $self->set_buf(\@copy) if @copy;
     }
-
-    my $hist = Fish::Youtube::History->new(
-        num_movies => 15,
-        profile_dir => $p,
-    );
-
-    $hist->update;
-    my $m = $hist->movies;
-
-    # no undefined element
-    if (@$m and not grep { not defined } @$m) {
-        $self->set_buf($m);
+    # couldn't update
+    else {
+        $self->_dont_update_tree(1);
     }
 
     return 1;
@@ -127,6 +154,9 @@ sub update_movie_tree {
     state $last;
     state $first = 1;
 
+    # ff bug
+    return 1 if $self->_dont_update_tree;
+
     my $i = 0;
 
     my $buf = $self->_buf;
@@ -136,14 +166,14 @@ sub update_movie_tree {
 
     # single value of {} means History returned exactly 0 entries
     {
-        my $m = shift_r $buf;
+        my $m = shiftr $buf;
         if (! $m or ! %$m) {
             @$data_magic = "No movies -- first browse somewhere in Firefox.";
 
             return 1;
         }
         else {
-            unshift_r $buf, $m;
+            unshiftr $buf, $m;
         }
     }
 
@@ -186,7 +216,7 @@ sub update_movie_tree {
         my $mid = $G->get_mid;
 
         push @$data_magic, qq, <span size="small">$t</span> ,;
-        push_r $self->_data, { mid => $mid, url => $u, title => $t};
+        pushr $self->_data, { mid => $mid, url => $u, title => $t};
 
         # first in buffer is last
         $last = $u if ++$i == @n;
@@ -216,7 +246,7 @@ sub set_buf {
     my ($self, $_movies_buf) = @_;
 
     #@Movies_buf: latest in front
-    unshift_r $self->_buf, $_ for reverse @$_movies_buf;
+    unshiftr $self->_buf, $_ for reverse @$_movies_buf;
 }
 
 sub get_data {

@@ -51,8 +51,6 @@ use 5.10.0;
 my %opts;
 getopts('khg:n:u:atflF', \%opts);
 
-$DIR = '/stuff' if sys ('hostname') ~~ ["carajo\n", "boldog\n"];
-
 my $USAGE = "Usage: $0 -k | [-a | -t | -f | -u url] [-l (to log)] [-g gain] [-F to pass force to yt-get] [-n num=1]\n";
 
 my $Child_pid;
@@ -135,27 +133,29 @@ sub get_movie_from_temp {
 }
 
 sub get_movie_from_fd {
-    my $p = sys qq. ps auxw | grep plugin-container | grep libflashplayer | grep xul | grep -v grep | awk '{ print \$2 }' .;
-    chomp $p;
-    $p or return;
-    my $s = sys qq. ls -l /proc/$p/fd/* | grep deleted ., 0;
-    #$s =~ s|(/.+?\s)| sprintf "%s%s%s", G, $1, _ |eg;
+    my @pids = list scalar sysl qq. ps auxw | grep plugin-container | grep libflashplayer | grep xul | grep -v grep | awk '{ print \$2 }' .;
+    for my $p (@pids) {
+        #chomp $p;
+        $p or return;
+        my $s = sys qq. ls -l /proc/$p/fd/* | grep deleted ., 0;
+        #$s =~ s|(/.+?\s)| sprintf "%s%s%s", G, $1, _ |eg;
 
-    # throw the last one into xclip
-    while ($s =~ s| (\S+) ( \s -> \s )(/tmp/Flash\S+)| Y($1) . $2 . BR($3) |xeg) {
-        my $fh = safeopen '|xclip';
-        print $fh $1;
-        close $fh;
+        # throw the last one into xclip
+        while ($s =~ s| (\S+) ( \s -> \s )(/tmp/Flash\S+)| Y($1) . $2 . BR($3) |xeg) {
+            my $fh = safeopen '|xclip';
+            print $fh $1;
+            close $fh;
+        }
+
+        chomp $s;
+
+        say $s;
+
+        $s = sys qq. lsof | grep plugin-co | grep deleted ., 0;
+        chomp $s;
+        $s =~ s| (/tmp/Flash\S+)| BR($1) |xeg;
+        say $s;
     }
-
-    chomp $s;
-
-    say $s;
-
-    $s = sys qq. lsof | grep plugin-co | grep deleted ., 0;
-    chomp $s;
-    $s =~ s| (/tmp/Flash\S+)| BR($1) |xeg;
-    say $s;
 
     return undef;
 }

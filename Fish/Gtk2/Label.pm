@@ -3,6 +3,7 @@ package Fish::Gtk2::Label;
 use Gtk2;
 
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility::Gtk;
 
 use strict;
 use warnings;

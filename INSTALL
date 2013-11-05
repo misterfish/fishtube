@@ -5,6 +5,8 @@ It's also possible without sudo but more complicated.
 
 First, you need perl > 5.10.0. (Check with perl -v). 
 
+#   Add xsaccessor  XX
+
 Then:
 
 PACKAGE-BASED INSTALL (best)

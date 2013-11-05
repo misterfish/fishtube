@@ -3,7 +3,9 @@ package Fish::Youtube::Components::Download;
 use 5.10.0;
 
 use Moose;
+
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility::Gtk;
 
 my $LOPTS = { size => 'small' };
 

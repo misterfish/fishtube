@@ -27,6 +27,10 @@ use Fish::Gtk2::Label;
 my $L = 'Fish::Gtk2::Label';
 
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility 'error';
+use Fish::Youtube::Utility::Gtk;
+#use Fish::Youtube::Anon 'o';
+use Fish::Youtube::UO 'o'; # should phase out (Class::Generate)
 
 use Fish::Youtube::Download;
 
@@ -295,6 +299,7 @@ sub init {
 
     {
         my $movies_list = Fish::Youtube::Components::MoviesList->new(
+            # can be undef
             profile_dir => main->profile_dir,
             cb_row_activated => \&row_activated,
         );
@@ -465,6 +470,7 @@ sub init {
         push @init_chain, sub {
             my $pd = profile_dialog($profile_ask);
             main::set_profile_dir($pd);
+            $G->movies_list_comp->profile_dir($pd);
         };
     }
 
@@ -964,16 +970,6 @@ sub draw_surface_on_pixmap {
     my $cairo_pixmap = Gtk2::Gdk::Cairo::Context->create($pixmap);
     $cairo_pixmap->set_source_surface($surface, 0,0);
     $cairo_pixmap->paint;
-}
-
-sub error {
-    my @s = @_;
-    die join ' ', @s, "\n";
-}
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 sub max {

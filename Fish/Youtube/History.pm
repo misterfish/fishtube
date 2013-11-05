@@ -6,10 +6,9 @@ use 5.10.0;
 
 use Moose;
 
-sub error;
-sub war;
-
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility 'error';
+use Fish::Youtube::Iter;
 
 #%
 use DBI;
@@ -18,6 +17,7 @@ has movies => (
     is => 'ro',
     isa => 'ArrayRef',
     writer => 'set_movies',
+    default => sub {[]},
 );
 
 has num_movies => (
@@ -27,9 +27,8 @@ has num_movies => (
 );
 
 has profile_dir => (
-    is => 'ro',
-    isa => 'Str',
-    writer => 'set_profile_dir',
+    is => 'rw',
+    isa => 'Maybe',
 );
 
 has _dbh => (
@@ -39,6 +38,11 @@ has _dbh => (
 has _last_update_time => (
     is => 'rw',
     isa => 'Num',
+);
+
+has _last_movie => (
+    is => 'rw',
+    isa => 'HashRef',
 );
 
 around BUILDARGS => sub {
@@ -58,15 +62,18 @@ sub BUILD {
 
 sub connect {
     my ($self) = @_;
-    my $pd = $self->profile_dir;
+    my $pd = $self->profile_dir or
+        return; # ok, it hasn't been set yet.
+
     my $file = "$pd/places.sqlite";
     my $dbh = DBI->connect(
         "dbi:SQLite:dbname=$file", "", "",
         {  
             # Perl strings retrieved from DB will contain chars.
             sqlite_unicode => 1,
-            # enable transactions, don't need begin_work
-            AutoCommit => 0,
+            #### enable transactions, don't need begin_work
+            ###AutoCommit => 0,
+            AutoCommit => 1,
             PrintError => 1,
             RaiseError => 1,
         }
@@ -74,12 +81,18 @@ sub connect {
     $self->_dbh($dbh);
 }
 
+# don't think we need this
+sub disconnect {
+    shift->_dbh->disconnect;
+}
+
 sub update {
 
     my ($self) = @_;
 
-    # need to reconnect to see updates apparently.
-    $self->connect;
+    # Reconnect on every update. Necessary?
+    $self->connect or 
+        return; # ok, we don't know profile dir yet probably.
 
     my $num = $self->num_movies;
 
@@ -98,22 +111,30 @@ sub update {
             $wt 
         order by moz_places.last_visit_date desc limit $num | ;
 
-    # expires?
     my $r = $self->_dbh->selectall_arrayref($sql);
 
-    my @d;
-    if (@$r) {
-        my $t = time;
-        $self->_last_update_time($t);
-    }
-    else {
-        # single {} means no movies
-        @d = ({});
-    }
+    my @new;
 
-    for (@$r) {
-        my ($url, $date, $title) = @$_;
+    while (my $iter = iterr $r) {
+        my $i = $iter->k;
+        my $data = $iter->v;
+
+        my ($url, $date, $title) = @$data;
         $title or next;
+
+        if ($i == 0) {
+            if (my $last = $self->_last_movie) {
+                if ($title eq $last->{title}) {
+                    say 'AHA', $title;
+                    # could be that one of them has that weird triangle in
+                    # front XX
+                    return -1;
+                }
+            }
+
+            $self->_last_update_time(time);
+        }
+
         my ($domain, $rest) = ($url =~ m| http s? :// ([^/] +) (/ .+)? |x);
 
         $rest or warn, next;
@@ -129,26 +150,22 @@ sub update {
         #next if $rest =~ m|^/results|;
         #next if $rest =~ m|^/user|;
         D2 'history', 'url', $url, 'date', $date, 'title', $title;
-        push @d, new_movie($url, $date, $title);
+        push @new, new_movie($url, $date, $title);
     }
 
-    $self->set_movies(\@d);
+    # ff bug/strangeness
+    $self->_last_movie($new[0]) if @new;
+
+    # ->movies only contains movies added since the last timestamp.
+    $self->set_movies(\@new) if @new;
+
+    1;
 }
 
 sub new_movie {
     my ($url, $date, $title) = @_;
     $url and $date and $title or die;
     return { url => $url, date => $date, title => $title };
-}
-
-sub error {
-    my @s = @_;
-    die join ' ', @s, "\n";
-}
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 1;

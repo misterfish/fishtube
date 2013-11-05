@@ -27,6 +27,8 @@ use warnings;
 use threads;
 use threads::shared;
 
+sub error;
+
 use Gtk2 qw/ -init -threads-init /;
 
 use Time::HiRes 'sleep';
@@ -43,12 +45,12 @@ my $AUTO_START_DEFAULT = 0;
 sub auto_start_default { $AUTO_START_DEFAULT }
 
 use Fish::Youtube::Utility;
+use Fish::Youtube::Utility::Gtk;
+#use Fish::Youtube::Iter;
+
 use Fish::Youtube::Gtk;
 use Fish::Youtube::History;
 use Fish::Youtube::Get;
-
-sub error;
-sub war;
 
 #%
 
@@ -182,6 +184,8 @@ sub get_profiles {
     return %profiles;
 }
 
+# Either it happens in the very beginning, before MoviesList object is made,
+# or MoviesList needs to get a message from Gtk.
 sub set_profile_dir {
     my ($pd) = @_;
     $Profile_dir = $pd;
@@ -203,11 +207,6 @@ sub error {
     else {
         die $e;
     }
-}
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
 }
 
 sub make_tmp_dir {
