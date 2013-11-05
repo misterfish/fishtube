@@ -101,8 +101,7 @@ sub BUILD {
         });
 
     my $h = Fish::Youtube::History->new(
-        #num_movies => 15,
-        num_movies => 3,
+        num_movies => 15,
         # can be undef
         profile_dir => $self->profile_dir,
     );
