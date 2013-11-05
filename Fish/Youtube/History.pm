@@ -125,11 +125,11 @@ sub update {
         my ($url, $date, $title) = @$data;
         $title or next;
 
-        $title =~ s/ ^ $tri //x;
+        $title =~ s/ ^ $tri \s* //x;
         if ($i == 0) {
             if (my $last = $self->_last_movie) {
                 my $lt = $last->{title};
-                $lt =~ s/ ^ $tri //x;
+                $lt =~ s/ ^ $tri \s* //x;
 
                 if ($title eq $lt) {
                     info 'Detected duplicate firefox thing, waiting';
