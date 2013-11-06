@@ -370,7 +370,7 @@ sub init { shift if $_[0] eq __PACKAGE__;
         my $auto_start_cb = Gtk2::CheckButton->new('');
         $auto_start_cb->set_active($g->auto_start_watching);
         $auto_start_cb->signal_connect('toggled', sub {
-            state $state = 1;
+            state $state = $g->auto_start_watching;
             $state = !$state;
             $g->auto_start_watching($state);
         });

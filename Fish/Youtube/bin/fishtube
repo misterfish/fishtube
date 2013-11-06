@@ -29,9 +29,7 @@ use threads::shared;
 
 use Gtk2 qw/ -init -threads-init /;
 
-use Time::HiRes 'sleep';
-
-use POSIX qw/ WNOHANG setsid /;
+#use POSIX qw/ WNOHANG setsid /;
 use Proc::SyncExec qw/ sync_exec sync_popen_noshell /;
 use Proc::ProcessTable;
 
@@ -45,7 +43,6 @@ use Fish::Youtube::Iter;
 use Fish::Youtube::UO 'o'; # should phase out (Class::Generate)
 
 use Fish::Youtube::Gtk;
-
 use Fish::Youtube::History;
 use Fish::Youtube::Get;
 
@@ -73,6 +70,8 @@ our $opt_Z;
 getopts('hp:do:Z');
 
 $opt_h and error $USAGE;
+
+# - - - main
 
 my $g = o(
     tmp_dirs => [],
