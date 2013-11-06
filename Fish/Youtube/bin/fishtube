@@ -101,7 +101,7 @@ if ($opt_d) {
 check_profiles();
 check_output_dir();
 
-# Go.  
+# - - - go.
 $g->c->g->init({ profile_ask => $g->profile_ask });
 
 exit;
