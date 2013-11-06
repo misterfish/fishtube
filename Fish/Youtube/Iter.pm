@@ -22,25 +22,6 @@ BEGIN {
     our @EXPORT = qw, iter iterr iterab iterrab ,;
 }
 
-# Old way:
-# Usage: while (my $i = iter each %hash)
-#        while (my $i = iter each @array)
-#        while (my $i = iter eachr $array_ref)
-#        while (my $i = iter eachr $hash_ref)
-#        while (my $i = iter eachr @$array_ref)
-#        while (my $i = iter eachr %$hash_ref)
-
-sub iter_old (@) {
-    my ($k, $v) = @_;
-    return unless defined $k;
-    my $i = _Iter->new(
-        a => $k,
-        b => $v,
-    );
-    $i;
-}
-
-# New way:
 # Usage: while (my $i = iter %hash)
 #        while (my $i = iter @array)
 #        while (my $i = iterr $array_ref)
@@ -113,49 +94,3 @@ sub iterrab ($) {
 }
 
 1;
-
-
-
-
-
-__END__
-
-# old version: pure perl
-package __IterHash {
-    use warnings;
-    use strict;
-
-    use 5.14.0;
-
-    sub new {
-        my ($c, @args) = @_;
-        my $self;
-        if (@args) {
-            $self = {};
-            for (my $i = 0; $i < @args; $i+=2) {
-                my $k = $args[$i];
-                my $v = $args[$i+1];
-                $self->{$k} = $v;
-            }
-        }
-        else {
-            $self = {
-                a => undef,
-                b => undef,
-            };
-        }
-        bless $self, __PACKAGE__;
-    }
-
-    sub k {
-        my ($self) = @_;
-        $self->{a};
-    }
-
-    sub v {
-        my ($self) = @_;
-        $self->{b};
-    }
-
-1}
-

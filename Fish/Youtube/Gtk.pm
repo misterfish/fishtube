@@ -50,8 +50,6 @@ use constant STATUS_MISC => 101;
 use constant ALLOW_SYNC => 0;
 
 sub err;
-sub error;
-sub war;
 sub mess;
 sub max;
 
@@ -64,7 +62,6 @@ my $RC_DIR = $main::bin_dir . '/../rc';
 -r $IMAGES_DIR or error "Images dir", Y $IMAGES_DIR, "not readable";
 
 my $TIMEOUT_METADATA = 15000;
-#my $TIMEOUT_REDRAW = 50;
 my $TIMEOUT_REDRAW = 100;
 
 my $DELAY_START_DOWNLOAD = 300;
@@ -163,11 +160,14 @@ my $W_tb = o(
 
 my $W;
 
-my $Output_dir;
-
 #globals
 
-my $G = o(
+my $g = o(
+
+    # public vars of main, set in init
+    main => undef,
+
+    output_dir => '',
 
     height => $HEIGHT, # inited then calculated
     width => -1, # calculated
@@ -175,7 +175,7 @@ my $G = o(
     # for prog
     stats => {},
 
-    auto_start_watching => main::auto_start_default(),
+    auto_start_watching => undef,
 
     init => 0,
     last_mid_in_statusbar => -1,
@@ -225,15 +225,19 @@ sub col { $Col }
 
     } keys %IMG;
 
-    $G->img(\%img);
+    $g->img(\%img);
 }
 
-sub init {
+sub init { shift if $_[0] eq __PACKAGE__;
 
     Gtk2::Gdk::Threads->enter;
 
-    my ($class, $od, $opt) = @_;
+    my ($opt) = @_;
     $opt //= {};
+
+    my $main = main->public;
+    $g->main($main);
+    $g->auto_start_watching($main->auto_start_default);
 
     my $rc_file = "$RC_DIR/gtkrc";
     if (! -e $rc_file) {
@@ -246,7 +250,7 @@ sub init {
     }
 
     my $od_ask;
-    if ($od) {
+    if (my $od = $main->output_dir) {
         set_output_dir($od);
     }
     else {
@@ -262,13 +266,13 @@ sub init {
     my $wid = $scr->get_width;
     if (! $wid) {
         warn "couldn't get screen width";
-        $G->width(800);
+        $g->width(800);
     }
     else {
-        $G->width($wid * $WID_PERC);
+        $g->width($wid * $WID_PERC);
     }
 
-    $W->set_default_size($G->width, $G->height);
+    $W->set_default_size($g->width, $g->height);
     $W->modify_bg('normal', $Col->white);
 
     $W->signal_connect('configure_event', \&configure_main );
@@ -285,7 +289,7 @@ sub init {
     $W_eb->$_->modify_bg('normal', $Col->white) for keys %$W_eb;
 
     my $button_add = Gtk2::EventBox->new;
-    $button_add->add(Gtk2::Image->new_from_file($G->img('add')));
+    $button_add->add(Gtk2::Image->new_from_file($g->img('add')));
     $button_add->signal_connect('button-press-event', sub {
         my $response = inject_movie();
     });
@@ -300,18 +304,18 @@ sub init {
     {
         my $movies_list = Fish::Youtube::Components::MoviesList->new(
             # can be undef
-            profile_dir => main->profile_dir,
+            profile_dir => $g->main->profile_dir,
             cb_row_activated => \&row_activated,
         );
 
         my $tree = $movies_list->widget;
-        $G->movies_list_comp($movies_list);
+        $g->movies_list_comp($movies_list);
         $W_sw->left->add($tree);
     }
 
     $W_sw->left->show_all;
 
-    set_pane_position($G->width);
+    set_pane_position($g->width);
 
     my $outer_box = Gtk2::VBox->new;
 
@@ -364,11 +368,11 @@ sub init {
 
     {
         my $auto_start_cb = Gtk2::CheckButton->new('');
-        $auto_start_cb->set_active($G->auto_start_watching);
+        $auto_start_cb->set_active($g->auto_start_watching);
         $auto_start_cb->signal_connect('toggled', sub {
             state $state = 1;
             $state = !$state;
-            $G->auto_start_watching($state);
+            $g->auto_start_watching($state);
         });
         {
             my $l = ($auto_start_cb->get_children)[0];
@@ -391,9 +395,9 @@ sub init {
         $outer_box->pack_end($t, 0, 0, 10);
     }
 
-    $W_sb->main->set_size_request($G->width * .7, -1);
+    $W_sb->main->set_size_request($g->width * .7, -1);
 
-    $W_lb->od->set_size_request($G->width * .3, -1);
+    $W_lb->od->set_size_request($g->width * .3, -1);
 
     $W_sb->main->set_has_resize_grip(0);
 
@@ -469,12 +473,12 @@ sub init {
     if ($profile_ask) {
         push @init_chain, sub {
             my $pd = profile_dialog($profile_ask);
-            main::set_profile_dir($pd);
-            $G->movies_list_comp->set_profile_dir($pd);
+            $g->main->profile_dir($pd);
+            $g->movies_list_comp->set_profile_dir($pd);
         };
     }
 
-    push @init_chain, sub { $G->init(1) };
+    push @init_chain, sub { $g->init(1) };
 
     my $chain = sub {
 
@@ -493,12 +497,12 @@ sub init {
 }
 
 sub inited {
-    return $G->init;
+    return $g->init;
 }
 
 sub get_mid {
-    $G->last_mid_inc;
-    $G->last_mid;
+    $g->last_mid_inc;
+    $g->last_mid;
 }
 
 sub row_activated {
@@ -506,7 +510,7 @@ sub row_activated {
 
     my $row_idx = $path->get_indices;
 
-    my $d = $G->movies_list_comp->get_data($row_idx) or die;
+    my $d = $g->movies_list_comp->get_data($row_idx) or die;
 
     my ($u, $t, $mid) = ($d->{url}, $d->{title}, $d->{mid});
 
@@ -522,7 +526,7 @@ sub init_download {
     # already downloaded /-ing
     return if $D->exists($mid);
 
-    if (! $Output_dir) {
+    if (! $g->output_dir) {
         # remove_all doesn't seem to work.
         $W_sb->main->pop(STATUS_OD);
         $W_sb->main->push(STATUS_OD, 'Choose output dir first.');
@@ -536,15 +540,15 @@ sub init_download {
         mid => $mid,
     );
 
-    $G->download_comp->{$mid} = $download_comp;
+    $g->download_comp->{$mid} = $download_comp;
 
     # main eventbox for comp
     my $download_comp_widget = $download_comp->widget;
 
     my $height_box = $download_comp->height;
 
-    $G->last_idx_inc;
-    my $idx = $G->last_idx;
+    $g->last_idx_inc;
+    my $idx = $g->last_idx;
 
     # $D class keeps track.
 
@@ -565,10 +569,10 @@ sub init_download {
 
     state $first = 1;
 
-    my $prefq = $G->qualities->[$G->preferred_quality];
-    my $preft = $G->types->[$G->preferred_type];
-    my $itaq = $G->is_tolerant_about_quality;
-    my $itat = $G->is_tolerant_about_type;
+    my $prefq = $g->qualities->[$g->preferred_quality];
+    my $preft = $g->types->[$g->preferred_type];
+    my $itaq = $g->is_tolerant_about_quality;
+    my $itat = $g->is_tolerant_about_type;
 
     $_ eq $T->ask and $_ = '' for $prefq, $preft;
 
@@ -583,7 +587,7 @@ sub init_download {
     $W_ly->right->show_all;
 
     if ($first) {
-        set_pane_position($G->width / 2);
+        set_pane_position($g->width / 2);
         $first = 0;
     }
 
@@ -614,13 +618,13 @@ sub start_download {
     my $errstr;
 
     if ($async) {
-        ($get, $status, $errstr) = main::start_download_async($u, $Output_dir, $prefq, $preft, $itaq, $itat);
+        ($get, $status, $errstr) = main::start_download_async($u, $g->output_dir, $prefq, $preft, $itaq, $itat);
     }
     else {
 
 warn 'not implemented';
 
-        main::start_download_sync($mid, $u, $Output_dir, $prefq, $preft, $itaq, $itat) ;
+        main::start_download_sync($mid, $u, $g->output_dir, $prefq, $preft, $itaq, $itat) ;
     }
 
     if ($status eq 'error') {
@@ -693,7 +697,7 @@ sub download_started {
 
     my $d = $D->get($mid) or warn, return;
 
-    my $download_comp = $G->download_comp->{$mid} or warn, return;
+    my $download_comp = $g->download_comp->{$mid} or warn, return;
 
     if ($manual) {
         $title = basename $of;
@@ -778,7 +782,7 @@ sub auto_start_watching {
 
     if ($past_thres) {
         # box is checked
-        if ($G->auto_start_watching) {
+        if ($g->auto_start_watching) {
             main::watch_movie($file);
         }
         return 0;
@@ -816,7 +820,7 @@ sub file_progress {
     my $delete;
 
     if ($$cur_size_r == 0) {
-        $G->stats->{$mid} = {
+        $g->stats->{$mid} = {
             start_time => time,
         };
     } 
@@ -824,7 +828,7 @@ sub file_progress {
     my $cs = $s->size;
     $$cur_size_r = $cs unless $cs == -1;
 
-    my $stats = $G->stats->{$mid};
+    my $stats = $g->stats->{$mid};
     $stats->{bytes} = $$cur_size_r;
 
     my $secs = time - $stats->{start_time};
@@ -888,11 +892,11 @@ sub configure_main {
         $first = 0;
     }
     else {
-        return if $ew == $G->width and $eh == $G->height;
+        return if $ew == $g->width and $eh == $g->height;
     }
 
-    $G->width($ew);
-    $G->height($eh);
+    $g->width($ew);
+    $g->height($eh);
 
     # make new pixmaps for all current downloads
     $D->make_pixmaps;
@@ -1030,12 +1034,11 @@ sub remove_download_entry {
         }
     }
     
-    $G->last_idx_dec;
+    $g->last_idx_dec;
     $download_comp->destroy;
 
     update_scroll_area(-1);
 
-    #D 'redrawing';
     redraw();
 }
 
@@ -1058,7 +1061,7 @@ sub err {
 
 sub status {
     my ($class, $s) = @_;
-    $G->init or warn, return;
+    $g->init or warn, return;
     $W_sb->main->push(STATUS_MISC, $s);
 }
 
@@ -1102,8 +1105,8 @@ sub inject_movie {
     my $url = inject_movie_dialog() or return;
     state $i = 0;
     # check url?
-    $G->last_mid_inc;
-    init_download($url, undef, $G->last_mid);
+    $g->last_mid_inc;
+    init_download($url, undef, $g->last_mid);
 }
 
 sub make_dialog {
@@ -1128,7 +1131,7 @@ sub inject_movie_dialog {
 
     my $i = Gtk2::Entry->new;
     #$i->set_max_length(80);
-    $i->set_size_request(int $G->width / 2,-1);
+    $i->set_size_request(int $g->width / 2,-1);
 
 
     $dialog->add_action_widget($i, 'apply');
@@ -1295,12 +1298,12 @@ sub do_output_dir_dialog {
 
 sub set_output_dir {
     my ($od) = @_;
-    $Output_dir = $od;
-    main::set_output_dir($Output_dir);
+    $g->output_dir($od);
+    $g->main->output_dir($od);
 
     timeout(100, sub {
         $W_lb->od or return 1;
-        $W_lb->od->set_label($T->output_dir . " $Output_dir", { size => 'small' });
+        $W_lb->od->set_label($T->output_dir . " $od", { size => 'small' });
         0;
     });
 }
@@ -1311,10 +1314,10 @@ return;
 
     my $SIM_TMP = main::make_tmp_dir();
     my $sim_idx = 0;
-    set_pane_position($G->width / 2);
+    set_pane_position($g->width / 2);
     timeout(1000, sub {
-        $G->last_mid_inc;
-        my $mid = $G->last_mid;
+        $g->last_mid_inc;
+        my $mid = $g->last_mid;
         my $size = int rand 1e6;
         my $of = "$SIM_TMP/blah$mid.flv";
         my $err_file = 'null';
@@ -1399,27 +1402,27 @@ sub get_q_and_t_dialog {
     my $c = $dialog->get_content_area;
     my $a = $dialog->get_action_area;
 
-    my $idx_ask_q = -1 + scalar list $G->qualities;
-    my $idx_ask_t = -1 + scalar list $G->types;
+    my $idx_ask_q = -1 + scalar list $g->qualities;
+    my $idx_ask_t = -1 + scalar list $g->types;
 
-    my ($boxq, $combo_boxq) = make_list_choice($G->qualities, $T->pq2);
-    my ($boxt, $combo_boxt) = make_list_choice($G->types, $T->pt2);
+    my ($boxq, $combo_boxq) = make_list_choice($g->qualities, $T->pq2);
+    my ($boxt, $combo_boxt) = make_list_choice($g->types, $T->pt2);
 
-    $combo_boxq->set_active($G->preferred_quality);
-    $combo_boxt->set_active($G->preferred_type);
+    $combo_boxq->set_active($g->preferred_quality);
+    $combo_boxt->set_active($g->preferred_type);
 
     # return
-    my $is_tolerant_about_quality = $G->is_tolerant_about_quality;
-    my $is_tolerant_about_type = $G->is_tolerant_about_type;
+    my $is_tolerant_about_quality = $g->is_tolerant_about_quality;
+    my $is_tolerant_about_type = $g->is_tolerant_about_type;
     my ($quality, $type);
 
     my $fb_cb_q = Gtk2::CheckButton->new('');
 
-    $fb_cb_q->set_active($G->is_tolerant_about_quality);
+    $fb_cb_q->set_active($g->is_tolerant_about_quality);
 
     sig $fb_cb_q, 'toggled', sub {
-        my $i = ! $G->is_tolerant_about_quality;
-        $G->is_tolerant_about_quality($i);
+        my $i = ! $g->is_tolerant_about_quality;
+        $g->is_tolerant_about_quality($i);
         $is_tolerant_about_quality = $i;
     };
 
@@ -1427,8 +1430,8 @@ sub get_q_and_t_dialog {
     $fb_cb_t->set_active($is_tolerant_about_type);
 
     sig $fb_cb_t, 'toggled', sub {
-        my $i = ! $G->is_tolerant_about_type;
-        $G->is_tolerant_about_type($i);
+        my $i = ! $g->is_tolerant_about_type;
+        $g->is_tolerant_about_type($i);
         $is_tolerant_about_type = $i;
     };
 
@@ -1472,8 +1475,8 @@ sub get_q_and_t_dialog {
     sig $ok, 'clicked', sub {
         $quality = $combo_boxq->get_active;
         $type = $combo_boxt->get_active;
-        $G->preferred_quality($quality);
-        $G->preferred_type($type);
+        $g->preferred_quality($quality);
+        $g->preferred_type($type);
         $dialog->destroy;
     };
 
@@ -1543,10 +1546,10 @@ sub cb_set_label {
 
 sub set_pref_labels {
     # desired / required 
-    my $q = $G->is_tolerant_about_quality ? $T->pq2 : $T->pq3;
-    my $t = $G->is_tolerant_about_type ? $T->pt2 : $T->pt3;
-    my $prefq = $G->qualities->[$G->preferred_quality];
-    my $preft = $G->types->[$G->preferred_type];
+    my $q = $g->is_tolerant_about_quality ? $T->pq2 : $T->pq3;
+    my $t = $g->is_tolerant_about_type ? $T->pt2 : $T->pt3;
+    my $prefq = $g->qualities->[$g->preferred_quality];
+    my $preft = $g->types->[$g->preferred_type];
     $W_lb->pq->set_label("$q $prefq", { size => 'small' });
     $W_lb->pt->set_label("$t $preft", { size => 'small' });
 }
@@ -1558,7 +1561,7 @@ sub get_image_button {
 
     my $im = Gtk2::Image->new;
 
-    my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($G->img($which));
+    my $pix_normal = Gtk2::Gdk::Pixbuf->new_from_file($g->img($which));
     $im->set_from_pixbuf($pix_normal);
 
     my $eb = Gtk2::EventBox->new;
@@ -1566,7 +1569,7 @@ sub get_image_button {
     $eb->add($im);
 
     if ($which_hover) {
-        my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($G->img($which_hover));
+        my $pix_hover = Gtk2::Gdk::Pixbuf->new_from_file($g->img($which_hover));
         $eb->signal_connect('enter-notify-event', sub {
             $im->set_from_pixbuf($pix_hover);
         });

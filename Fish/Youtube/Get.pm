@@ -182,6 +182,11 @@ has errstr => (
 # x-flv / mp4 / webm / 3gpp / [others?]
 my @TYPES = qw/ mp4 x-flv webm 3gpp /;
 
+# d stuff not really consistent.
+sub d {
+    my ($self, @d) = @_;
+    D @d;
+}
 sub d2 {
     my ($self, @d) = @_;
     $self->debug and D @d;

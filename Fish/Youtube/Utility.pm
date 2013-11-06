@@ -32,7 +32,8 @@ BEGIN {
         R BR G BG B BB CY BCY Y BY M BM RESET ANSI GREY
         D D2 D3 D_QUIET D_RAW D2_RAW DC DC_QUIET
 
-        slurp slurp8 cat strip strip_ptr 
+        slurp slurp8 slurpn slurpn8 
+        cat strip strip_ptr 
 
         cross check_mark yes_no 
 
@@ -925,7 +926,6 @@ sub contains (+$) {
     return containsr $ary, $search;
 }
 
-
 sub slurp {
     my ($arg, $opt) = @_;
     local $/ = undef;
@@ -944,6 +944,60 @@ sub slurp8 {
     $opt ||= {};
     $opt->{utf8} = 1;
     return slurp($arg, $opt);
+}
+
+sub slurpn($$) {
+    my ($size, $arg) = @_;
+    _slurpn($size, $arg, 0);
+}
+sub slurpn8($$) {
+    my ($size, $arg) = @_;
+    _slurpn($size, $arg, 1);
+}
+
+sub _slurpn {
+    my ($size, $arg, $utf8) = @_;
+    my $bytes;
+    if ($size =~ /\D/) {
+        if ($size =~ / ^ (\d+) ([bkmg]) $/ix) {
+            my $mult = { b => 1, k => 1e3, m => 1e6, g => 1e9, }->{lc $2};
+            $bytes = $1 * $mult;
+        }
+        else {
+            error "Invalid size for slurpn:", BR $size;
+        }
+    }
+    else {
+        $bytes = $size;
+    }
+    if (ref $arg eq 'GLOB') { 
+        # Can't get file size -- just read the given amount of bytes.
+        my $in;
+        sysread $arg, $in, $bytes or war("Couldn't read from fh"),
+            return;
+
+        my $is_stdin = do {
+            # STDIN could be duped, in which case it gets a new fileno: open my $fh, ">&STDIN"
+            # STDIN could be copied, in which case fileno is the same: open my $fh, "<&=STDIN"
+            # And File::stat doesn't work with STDIN.
+            my $stdin = safeopen "<&=STDIN", {die => 0} or last;
+            fileno($arg) == fileno STDIN                ? 1 :
+            ((stat $stdin)->ino == (stat $arg)->ino)    ? 1 :
+            0;
+        };
+
+        war "Filehandle not completely slurped." if not $is_stdin and not eof $arg;
+
+        return $utf8 ? d8 $in : $in;
+    }
+    else {
+        my $file_size = -s $arg;
+        defined $file_size or war (sprintf "Can't get size of file %s: %s", R $arg, $!),
+            return;
+        $file_size <= $bytes or war (sprintf "File too big (%s), not slurping.", $file_size), 
+            return;
+        return $utf8 ? slurp8 $arg : slurp $arg;
+    }
 }
 
 sub cat {

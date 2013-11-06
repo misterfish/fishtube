@@ -27,8 +27,6 @@ use warnings;
 use threads;
 use threads::shared;
 
-sub error;
-
 use Gtk2 qw/ -init -threads-init /;
 
 use Time::HiRes 'sleep';
@@ -40,163 +38,76 @@ use Proc::ProcessTable;
 use Getopt::Std;
 use File::Temp;
 
-# need some kind of conf file system XX
-my $AUTO_START_DEFAULT = 0;
-sub auto_start_default { $AUTO_START_DEFAULT }
-
 use Fish::Youtube::Utility;
 use Fish::Youtube::Utility::Gtk;
-#use Fish::Youtube::Iter;
+use Fish::Youtube::Iter;
+#use Fish::Youtube::Anon 'o';
+use Fish::Youtube::UO 'o'; # should phase out (Class::Generate)
 
 use Fish::Youtube::Gtk;
+
 use Fish::Youtube::History;
 use Fish::Youtube::Get;
 
-#%
-
-my $TMP_TMPL = 'fishtubeXXXX';
+sub error;
 
 # force END
 $SIG{KILL} = $SIG{INT} = sub { exit };
 
-my @Tmp_dirs;
+# need some kind of conf file system XX
 
-my $TMP = '/tmp';
+my $C = o(
+    auto_start_default => 0,
+    tmp_tmpl => 'fishtubeXXXX',
+    tmp => '/tmp',
+    movie_player => 'mplayer',
+    # use [ and ] for changing speed of movie without chipmunking the sound.
+    # and allow resizing.
+    movie_player_opts => '-af scaletempo -zoom',
+);
 
-my $MOVIE_PLAYER = 'mplayer';
-# use [ and ] for changing speed of movie without chipmunking the sound. 
-# and allow resizing.
-my $MOVIE_PLAYER_OPTS = '-af scaletempo -zoom';
+my $USAGE = "Usage: $0 [-p firefox-profile] [-d to debug] [-o output_dir]";
 
 our ($opt_h, $opt_p, $opt_d, $opt_o);
 our $opt_Z;
 getopts('hp:do:Z');
 
-my $debug;
-if ($opt_d) {
-    $debug = 1;
-    Fish::Youtube::Utility->debug_level(1);
-}
+$opt_h and error $USAGE;
 
-if ($debug) {
+my $g = o(
+    tmp_dirs => [],
+    debug => 0,
+
+    # class shortcuts
+    c => o(
+        g => 'Fish::Youtube::Gtk',
+    ),
+
+    profile_ask => undef,
+
+    public => o(
+        profile_dir => '',
+        output_dir => '',
+        auto_start_default => $C->auto_start_default,
+    ),
+);
+
+if ($opt_d) {
+    $C->debug(1);
+    Fish::Youtube::Utility->debug_level(1);
     $SIG{__WARN__} = \&Carp::cluck;
     $SIG{__DIE__} = \&Carp::confess;
 }
 
-$| = 1;
+check_profiles();
+check_output_dir();
 
-my $USAGE = "Usage: $0 [-p firefox-profile] [-d to debug] [-o output_dir]";
-
-$opt_h and error $USAGE;
-
-my $Profile_dir;
-my $Output_dir;
-
-sub profile_dir { $Profile_dir }
-
-my $G = 'Fish::Youtube::Gtk';
-
-my $profile_ask;
-{
-    my %profiles = get_profiles();
-    if ($opt_p) {
-        my $p = $profiles{$opt_p} or error "No profile named", Y $opt_p;
-        set_profile_dir($p);
-    }
-    else {
-        my @v = values %profiles;
-        if (@v == 1) {
-            set_profile_dir(shift @v);
-        }
-        else {
-            $profile_ask = \%profiles;
-        }
-    }
-}
-
-my $output_dir_ask;
-if ($opt_o) {
-    check_output_dir($opt_o);
-    set_output_dir($opt_o);
-}
-else {
-    $output_dir_ask = 1;
-}
-
-sub get_profiles {
-
-    my %profiles;
-
-    my $h = $ENV{HOME} or error "HOME env variable not set and no profile dir given.";
-    my $d = "$ENV{HOME}/.mozilla/firefox";
-    -d $d or error "Dir", Y $d, "doesn't exist and no profile dir given.";
-    -r $d or error "Dir", Y $d, "not readable and no profile dir given.";
-    my $f = "$d/profiles.ini";
-    -e $f or error "File", Y $f, "doesn't exist and no profile dir given.";
-    -r $f or error "File", Y $f, "not readable and no profile dir given.";
-
-    #[General]
-    #StartWithLastProfile=1
-    #
-    #[Profile0]
-    #Name=default
-    #IsRelative=1
-    #Path=qrnjdznh.default
-    #Default=1
-    #
-    #[Profile1]
-    #Name=blah
-    #IsRelative=1
-    #Path=xdrjtfpq.blah
-    #
-    #[Profile2]
-    #Name=blah2
-    #IsRelative=0
-    #Path=/tmp
-
-    my $fh = safeopen $f;
-    my $in = 0;
-    my @cur;
-    my $first = 1;
-
-    local $/ = undef;
-    my $ini = <$fh>;
-
-    my @s = split / ^ ( \[ Profile \d+ \] ) $/mx, $ini;
-    shift @s;
-    my $i = -1;
-    my $p;
-    for (@s) {
-        # header
-        if (not ++$i % 2) {
-            $p = $_;
-        }
-        # body
-        else {
-            my ($name) = /Name=(.+)/;
-            my ($path) = /Path=(.+)/;
-            $name or error "Couldn't get name for profile", Y $p;
-            $path or error "Couldn't get dir for profile", Y $p;
-            $profiles{$name} = "$d/$path";
-        }
-    }
-
-    return %profiles;
-}
-
-# Either it happens in the very beginning, before MoviesList object is made,
-# or MoviesList needs to get a message from Gtk.
-sub set_profile_dir {
-    my ($pd) = @_;
-    $Profile_dir = $pd;
-}
-
-# Output_dir can be undef
-$G->init($Output_dir, { profile_ask => $profile_ask });
+# Go.  
+$g->c->g->init({ profile_ask => $g->profile_ask });
 
 exit;
 
-# # #
+# - -- -
 
 sub error {
     my @s = @_;
@@ -211,9 +122,9 @@ sub error {
 
 sub make_tmp_dir {
     # gotta clean up manually.
-    my $d = File::Temp->newdir( $TMP_TMPL, DIR => $TMP, CLEANUP => 0 );
+    my $d = File::Temp->newdir( $C->tmp_tmpl, DIR => $C->tmp, CLEANUP => 0 );
     # so it doesn't go out of scope
-    push @Tmp_dirs, $d;
+    pushr $g->tmp_dirs, $d;
     $d->dirname;
 }
 
@@ -332,7 +243,7 @@ sub _start_download {
             # gui should take care of prompting for overwrite
             force => 1,
 
-            debug => $debug,
+            debug => $g->debug,
 
             preferred_qual => $prefq,
             preferred_type => $preft,
@@ -423,7 +334,7 @@ sub delete_file {
     my ($out, $code) = sys qq, rm -f "$file" ,, { die => 0 };
 
     if ($code) {
-        $G->err("Couldn't delete file '$file': $out");
+        $g->c->g->err("Couldn't delete file '$file': $out");
         return;
     }
 
@@ -433,26 +344,22 @@ sub delete_file {
 sub watch_movie {
     my ($file) = @_;
     if ( ! -e $file ) {
-        $G->err("File '$file' doesn't exist, can't watch.");
+        $g->c->g->err("File '$file' doesn't exist, can't watch.");
         return;
     }
-    if ( ! sys_ok qq, which $MOVIE_PLAYER , ) {
-        $G->status("Movie player '$MOVIE_PLAYER' doesn't exist.");
+    my $mp = $C->movie_player;
+    if ( ! sys_ok qq, which $mp , ) {
+        $g->c->g->status("Movie player '$mp' doesn't exist.");
         return;
     }
 
-    my $o = $MOVIE_PLAYER_OPTS // '';
+    my $o = $C->movie_player_opts // '';
 
-    my $pid = sync_exec qq, $MOVIE_PLAYER >/dev/null 2>&1 $o "$file" ,;
+    my $pid = sync_exec qq, $mp >/dev/null 2>&1 $o "$file" ,;
 
 }
 
-sub set_output_dir {
-    my ($od) = @_;
-    $Output_dir = $od or die;
-}
-
-sub check_output_dir {
+sub check_for_output_dir {
     my ($od) = @_;
     my $ok = 1;
     $ok = 0, error "Output dir", Y $od, "doesn't exist" unless -d $od;
@@ -473,12 +380,104 @@ sub sanitize_filename {
     $$tr =~ s/"/'/g;
 }
 
+sub public { $g->public }
+
+sub check_profiles {
+    my %profiles = get_profiles();
+    if ($opt_p) {
+        my $p = $profiles{$opt_p} or error "No profile named", Y $opt_p;
+        $g->public->profile_dir($p);
+    }
+    else {
+        my @v = values %profiles;
+        if (@v == 1) {
+            $g->public->profile_dir(shift @v);
+        }
+        else {
+            $g->profile_ask(\%profiles);
+        }
+    }
+}
+
+sub get_profiles {
+
+    my %profiles;
+
+    my $h = $ENV{HOME} or error "HOME env variable not set and no profile dir given.";
+    my $d = "$ENV{HOME}/.mozilla/firefox";
+    -d $d or error "Dir", Y $d, "doesn't exist and no profile dir given.";
+    -r $d or error "Dir", Y $d, "not readable and no profile dir given.";
+    my $f = "$d/profiles.ini";
+    -e $f or error "File", Y $f, "doesn't exist and no profile dir given.";
+    -r $f or error "File", Y $f, "not readable and no profile dir given.";
+
+    #[General]
+    #StartWithLastProfile=1
+    #
+    #[Profile0]
+    #Name=default
+    #IsRelative=1
+    #Path=qrnjdznh.default
+    #Default=1
+    #
+    #[Profile1]
+    #Name=blah
+    #IsRelative=1
+    #Path=xdrjtfpq.blah
+    #
+    #[Profile2]
+    #Name=blah2
+    #IsRelative=0
+    #Path=/tmp
+
+    my $in = 0;
+    my @cur;
+    my $first = 1;
+
+    my $ini = slurpn '1k', $f;
+
+    my @s = split / ^ ( \[ Profile \d+ \] ) $/mx, $ini;
+    shift @s;
+    my $i = -1;
+    my $p;
+    for (@s) {
+        # header
+        if (not ++$i % 2) {
+            $p = $_;
+        }
+        # body
+        else {
+            my ($name) = /Name=(.+)/;
+            my ($path) = /Path=(.+)/;
+            $name or error "Couldn't get name for profile", Y $p;
+            $path or error "Couldn't get dir for profile", Y $p;
+            $profiles{$name} = "$d/$path";
+        }
+    }
+
+    return %profiles;
+}
+
+sub check_output_dir {
+    #my $output_dir_ask;
+    if ($opt_o) {
+        check_for_output_dir($opt_o);
+        $g->public->output_dir($opt_o);
+    }
+    else {
+        #    $output_dir_ask = 1;
+    }
+}
+
+
+
+
 END {
     # die is ok in end
-    for my $d (@Tmp_dirs) {
+    for my $d (list $g->tmp_dirs) {
         D2 'Trying to clean up:', $d;
         # fishtubeXXXX
-        my $t = $TMP_TMPL;
+        my $t = $C->tmp_tmpl;
         my $num_x = 0;
         $num_x++ while $t =~ s/X$//;
         die unless $d =~ m| / $t .{$num_x} $|ix;

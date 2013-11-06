@@ -12,9 +12,6 @@ BEGIN {
 
         sig timeout set_cursor normal_cursor set_cursor_timeout
         get_color
-
-        info ask war war8 
-        fchomp
     /;
 }
 

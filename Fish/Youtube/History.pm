@@ -10,7 +10,6 @@ use Fish::Youtube::Utility;
 use Fish::Youtube::Utility 'error';
 use Fish::Youtube::Iter;
 
-#%
 use DBI;
 
 has movies => (
@@ -48,9 +47,6 @@ has _last_movie => (
 around BUILDARGS => sub {
     my ($orig, $class, @args) = @_;
     my %construct = @args;
-
-    # allow undef in constructor
-    #defined $construct{profile_dir} or delete $construct{profile_dir};
 
     return $class->$orig(%construct);
 };
@@ -147,16 +143,9 @@ info 'unequal', $title, $lt;
 
         $rest or warn, next;
 
-        # Bad to have nexts here, because could end up with empty list and
-        # that's confusing.
-        if (0) {
-            my @s = split /\./, $domain;
-            next if @s == 3 and $s[0] ne 'www';
-        }
+        # Don't do nexts here -- could confusingly end up with few or no
+        # results. Do as much as possible in the sql statement.
 
-        #next if $domain and $domain ne 'www.youtube.com';
-        #next if $rest =~ m|^/results|;
-        #next if $rest =~ m|^/user|;
         D2 'history', 'url', $url, 'date', $date, 'title', $title;
         push @new, new_movie($url, $date, $title);
     }
