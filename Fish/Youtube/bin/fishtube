@@ -2,8 +2,6 @@
 
 package main;
 
-our $bin_dir;
-
 BEGIN {
     use File::Basename;
     my $d = dirname $0;
@@ -80,6 +78,8 @@ my $g = o(
     # class shortcuts
     c => o(
         g => 'Fish::Youtube::Gtk',
+        u => 'Fish::Youtube::Utility',
+        get => 'Fish::Youtube::Get',
     ),
 
     profile_ask => undef,
@@ -93,13 +93,13 @@ my $g = o(
 
 if ($opt_d) {
     $C->debug(1);
-    Fish::Youtube::Utility->debug_level(1);
+    $g->c->u->debug_level(1);
     $SIG{__WARN__} = \&Carp::cluck;
     $SIG{__DIE__} = \&Carp::confess;
 }
 
 check_profiles();
-check_output_dir();
+check_output_dir($opt_o) if $opt_o;
 
 # - - - go.
 $g->c->g->init({ profile_ask => $g->profile_ask });
@@ -111,8 +111,8 @@ exit;
 sub error {
     my @s = @_;
     my $e = join ' ', @s, "\n";
-    if (Fish::Youtube::Gtk->inited) {
-        Fish::Youtube::Gtk::err($e);
+    if ($g->c->g->inited) {
+        $g->c->g->err($e);
     }
     else {
         die $e;
@@ -131,11 +131,6 @@ sub make_tmp_dir {
 # still in event loop -- no enter/exit necessary
 sub start_download_sync {
 
-    #my $did = shift // die;
-
-    # used?
-    my $mid = shift // die;
-
     my $url = shift or die;
     my $output_dir = shift or die;
 
@@ -153,7 +148,6 @@ sub start_download_sync {
     my $msg = {
         output_dir => $output_dir,
 
-        #did => $did,
         url => $url,
         prefq => $prefq,
         preft => $preft,
@@ -167,8 +161,6 @@ sub start_download_sync {
 }
 
 sub start_download_async {
-    #my $did = shift // die;
-
     my $url = shift or die;
 
     my $output_dir = shift or die;
@@ -201,7 +193,6 @@ sub start_download_async {
 
 sub _start_download {
 
-    #my ($did, $msg) = @_;
     my ($msg) = @_;
 
     my $tmp_dir = main::make_tmp_dir();
@@ -250,7 +241,7 @@ sub _start_download {
             is_tolerant_about_type => $itat,
         );
 
-        $get = Fish::Youtube::Get->new(@init);
+        $get = $g->c->get->new(@init);
 
         if ($get->error) {
             $status = 'error';
@@ -282,36 +273,26 @@ my $of;
 
         my @quals = list $response->{quals};
 
-        my $qual = Fish::Youtube::Gtk::list_choice_dialog(\@quals, "Choose quality", {allow_cancel => 1});
+        my $qual = $g->c->g->list_choice_dialog(\@quals, "Choose quality", {allow_cancel => 1});
 
         if ($qual) {
-            #$qo->enqueue( { qual => $qual } );
         }
         else {
-            #$qo->enqueue( { cancel => 1 });
             return -1;
         }
 
-        # types for this qual
-        #$response = $qi->dequeue or warn, return;
-
         my @types = list $response->{types} or warn, return;
 
-        my $type = Fish::Youtube::Gtk::list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
+        my $type = $g->c->g->list_choice_dialog(\@types, "Choose format", {allow_cancel => 1});
 
         if (! $type) {
             $status = 'cancelled';
         }
         # else ok
     }
-
-    #if (-r $of) {
-    #my $ok = Fish::Youtube::Gtk::replace_file_dialog($of);
          
     return $get, $status, $errstr;
 }
-
-
 
 sub process_running {
     my ($pid) = @_;
@@ -458,18 +439,10 @@ sub get_profiles {
 }
 
 sub check_output_dir {
-    #my $output_dir_ask;
-    if ($opt_o) {
-        check_for_output_dir($opt_o);
-        $g->public->output_dir($opt_o);
-    }
-    else {
-        #    $output_dir_ask = 1;
-    }
+    my ($dir) = @_;
+    check_for_output_dir($dir);
+    $g->public->output_dir($dir);
 }
-
-
-
 
 END {
     # die is ok in end

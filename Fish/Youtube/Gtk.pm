@@ -13,7 +13,7 @@ use Gtk2::SimpleList;
 
 use Gtk2::Pango;
 
-die "Glib::Object thread safety failed" unless Glib::Object->set_threadsafe (1);
+die "Glib::Object thread safety failed" unless Glib::Object->set_threadsafe(1);
 
 use AnyEvent;
 use AnyEvent::HTTP;
