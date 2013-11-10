@@ -63,9 +63,11 @@ my $C = o(
 
 my $USAGE = "Usage: $0 [-p firefox-profile] [-d to debug] [-o output_dir]";
 
-our ($opt_h, $opt_p, $opt_d, $opt_o);
+our ($opt_h, $opt_p, $opt_d, $opt_o, 
+    # luakit
+    $opt_l);
 our $opt_Z;
-getopts('hp:do:Z');
+getopts('hp:do:Zl');
 
 $opt_h and error $USAGE;
 
@@ -86,6 +88,7 @@ my $g = o(
 
     public => o(
         profile_dir => '',
+        luakit => 0,
         output_dir => '',
         auto_start_default => $C->auto_start_default,
     ),
@@ -364,7 +367,13 @@ sub public { $g->public }
 
 sub check_profiles {
     my %profiles = get_profiles();
-    if ($opt_p) {
+if ($opt_l) {
+    # too late
+    $g->public->profile_dir('/home/fritz/.local/share/luakit');
+    $g->public->luakit(1);
+}
+    #if 
+    elsif ($opt_p) {
         my $p = $profiles{$opt_p} or error "No profile named", Y $opt_p;
         $g->public->profile_dir($p);
     }

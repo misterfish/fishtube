@@ -9,8 +9,14 @@ use Moose;
 use Fish::Youtube::Utility;
 use Fish::Youtube::Utility 'error';
 use Fish::Youtube::Iter;
+use Fish::Anon 'o';
 
 use DBI;
+
+has luakit => (
+    is  => 'ro',
+    isa => 'Bool',
+);
 
 has movies => (
     is => 'ro',
@@ -44,6 +50,12 @@ has _last_movie => (
     isa => 'HashRef',
 );
 
+has _sql => (
+    is  => 'rw',
+    # XX
+    isa => 'Fish::Anon',
+);
+
 around BUILDARGS => sub {
     my ($orig, $class, @args) = @_;
     my %construct = @args;
@@ -51,9 +63,30 @@ around BUILDARGS => sub {
     return $class->$orig(%construct);
 };
 
+my $g = o(
+    sql_firefox => o(
+        col_last_visit_date => 'last_visit_date',
+        cols => ['url', 'last_visit_date', 'title'],
+        table_name => 'moz_places',
+        col_uri => 'url',
+        file => 'places.sqlite',
+    ),
+    sql_luakit => o(
+        col_last_visit_date => 'last_visit',
+        cols => ['uri', 'last_visit', 'title'],
+        table_name => 'history',
+        col_uri => 'uri',
+        file => 'history.db',
+    ),
+);
 
 sub BUILD {
     my ($self, @args) = @_;
+    $self->_sql( $self->luakit ? 
+        $g->sql_luakit :
+        $g->sql_firefox
+    );
+    $self->connect;
 }
 
 sub connect {
@@ -61,7 +94,8 @@ sub connect {
     my $pd = $self->profile_dir or
         return; # ok, it hasn't been set yet.
 
-    my $file = "$pd/places.sqlite";
+    my $filename = $self->_sql->file;
+    my $file = "$pd/$filename";
     my $dbh = DBI->connect(
         "dbi:SQLite:dbname=$file", "", "",
         {  
@@ -86,26 +120,35 @@ sub update {
 
     my ($self) = @_;
 
-    # Reconnect on every update. Necessary?
-    $self->connect or 
-        return; # ok, we don't know profile dir yet probably.
+    $self->_dbh or war("(Re)connecting"), $self->connect;
+
+#    # Reconnect on every update. Necessary?
+#    $self->connect or 
+#        war("couldn't (re)connect"),
+#        return; # ok, we don't know profile dir yet probably.
 
     my $num = $self->num_movies;
+
+    my $lvd = $self->_sql->col_last_visit_date;
+    my $cols = join ',', list $self->_sql->cols;
+    my $table_name = $self->_sql->table_name;
+    my $col_uri = $self->_sql->col_uri;
 
     my $wt = '';
     if (my $t = $self->_last_update_time) {
         # firefox format
-        $t .= '000000';
-        $wt = " and last_visit_date > $t ";
+        $t .= '000000' unless $self->luakit;
+
+        $wt = " and $lvd > $t ";
     }
 
     my $sql = qq| 
 
-    select url, last_visit_date, title
-        from moz_places 
-        where (url like '%youtube.com/watch%' or url like '%youtu.be/watch%') 
+    select $cols
+        from $table_name
+        where ($col_uri like '%youtube.com/watch%' or $col_uri like '%youtu.be/watch%') 
             $wt 
-        order by moz_places.last_visit_date desc limit $num | ;
+        order by $lvd desc limit $num | ;
 
     my $r = $self->_dbh->selectall_arrayref($sql);
 
@@ -123,7 +166,8 @@ sub update {
 
         $title =~ s/ ^ $tri \s* //x;
         if ($i == 0) {
-            if (my $last = $self->_last_movie) {
+            if ( ! $self->luakit and
+                my $last = $self->_last_movie) {
                 my $lt = $last->{title};
                 $lt =~ s/ ^ $tri \s* //x;
 
@@ -132,7 +176,7 @@ sub update {
                     return -1;
                 }
 else {
-info 'unequal', $title, $lt;
+info 'unequal', $title, $lt unless $self->luakit;
 }
             }
 

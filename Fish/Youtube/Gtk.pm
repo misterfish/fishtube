@@ -306,6 +306,8 @@ sub init { shift if $_[0] eq __PACKAGE__;
             # can be undef
             profile_dir => $g->main->profile_dir,
             cb_row_activated => \&row_activated,
+
+            luakit => $g->main->luakit,
         );
 
         my $tree = $movies_list->widget;

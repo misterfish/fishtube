@@ -66,6 +66,12 @@ has _data => (
     default => sub {[]},
 );
 
+has luakit => (
+    is  => 'ro',
+    isa => 'Bool',
+);
+
+
 # ff bug
 has _dont_update_tree => (
     is  => 'rw',
@@ -104,6 +110,8 @@ sub BUILD {
         num_movies => 15,
         # can be undef
         profile_dir => $self->profile_dir,
+
+        luakit => $self->luakit,
     );
 
     $self->_history($h);
