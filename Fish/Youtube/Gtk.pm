@@ -18,6 +18,7 @@ die "Glib::Object thread safety failed" unless Glib::Object->set_threadsafe(1);
 use AnyEvent;
 use AnyEvent::HTTP;
 
+use POSIX 'WNOHANG';
 use Time::HiRes 'time';
 
 use File::stat;
@@ -491,6 +492,8 @@ sub init { shift if $_[0] eq __PACKAGE__;
 
     # make Y, R, etc. no-ops
     disable_colors();
+
+    timeout 1000, sub { waitpid -1, WNOHANG }; # reap zombies
 
     # internally releases lock on each iter.
     Gtk2->main;

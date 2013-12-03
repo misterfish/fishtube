@@ -27,8 +27,7 @@ use threads::shared;
 
 use Gtk2 qw/ -init -threads-init /;
 
-#use POSIX qw/ WNOHANG setsid /;
-use Proc::SyncExec qw/ sync_exec sync_popen_noshell /;
+use Proc::SyncExec 'sync_exec', 'sync_popen_noshell';
 use Proc::ProcessTable;
 
 use Getopt::Std;
@@ -338,8 +337,8 @@ sub watch_movie {
 
     my $o = $C->movie_player_opts // '';
 
+    # Fork.
     my $pid = sync_exec qq, $mp >/dev/null 2>&1 $o "$file" ,;
-
 }
 
 sub check_for_output_dir {
