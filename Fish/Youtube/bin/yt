@@ -44,7 +44,7 @@ my $NUM_BYTES_BEFORE_PLAY = 1e6;
 my $LOG_FILE_O = '/tmp/yt-log-out';
 my $LOG_FILE_E = '/tmp/yt-log-err';
 
-$Fish::Youtube::Utility::LOG_LEVEL = 1;
+Fish::Youtube::Utility->debug_level(1);
 
 use 5.10.0;
 
@@ -109,7 +109,7 @@ elsif ($opts{f}) {
     $opts{u} and die $USAGE;
 
     $Out_file = get_movie_from_fd();
-    D 'out_file', $Out_file;
+    info 'out_file ->', $Out_file ? CY $Out_file : BR 'none';
     exit 0;
 }
 elsif ($opts{t}) {
@@ -117,7 +117,7 @@ elsif ($opts{t}) {
     $opts{f} and die $USAGE;
     $opts{u} and die $USAGE;
     $Out_file = get_movie_from_temp();
-    D 'out_file', $Out_file;
+    info 'out_file ->', $Out_file ? CY $Out_file : BR 'none';
 }
 else {
     # call youtube-get and return name
@@ -211,11 +211,6 @@ sub error {
     die join ' ', @_, "\n";
 }
 
-
-sub war {
-    my @s = @_;
-    warn join ' ', @s, "\n";
-}
 
 sub get_proc_with_ppid {
 
