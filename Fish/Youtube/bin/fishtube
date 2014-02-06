@@ -54,7 +54,8 @@ my $C = o(
     auto_start_default => 0,
     tmp_tmpl => 'fishtubeXXXX',
     tmp => '/tmp',
-    movie_player => 'mplayer',
+    #movie_player => 'mplayer',
+    movie_player => 'mpf',
     # use [ and ] for changing speed of movie without chipmunking the sound.
     # and allow resizing.
     movie_player_opts => '-af scaletempo -zoom',
