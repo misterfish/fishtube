@@ -449,8 +449,10 @@ sub get_profiles {
 
 sub check_output_dir {
     my ($dir) = @_;
-    check_for_output_dir($dir);
-    $g->public->output_dir($dir);
+    my $ok = check_for_output_dir($dir);
+    $g->public->output_dir($dir) if $ok;
+
+    $ok
 }
 
 END {

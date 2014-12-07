@@ -250,7 +250,7 @@ sub init { shift if $_[0] eq __PACKAGE__;
         Gtk2::Rc->parse($rc_file);
     }
 
-    my $od_ask;
+    my $od_ask; # ? XX
     if (my $od = $main->output_dir) {
         set_output_dir($od);
     }
@@ -379,7 +379,7 @@ sub init { shift if $_[0] eq __PACKAGE__;
         });
         {
             my $l = ($auto_start_cb->get_children)[0];
-            $L->set_label($l, "Auto start ($AUTO_WATCH_PERC%)", { size => 'small' });
+            $L->set_label($l, "Auto play ($AUTO_WATCH_PERC%)", { size => 'small' });
         }
 
         my $t = $W_tb->options;
@@ -1295,7 +1295,12 @@ sub do_output_dir_dialog {
     my $od;
     while (!$od) {
         my $o = output_dir_dialog();
-        $od = $o if main::check_output_dir($o);
+        if (main::check_output_dir($o)) {
+            $od = $o;
+        }
+        else {
+            war "Bad output dir?";
+        }
     }
     set_output_dir($od);
     $W_sb->main->pop(STATUS_OD);
