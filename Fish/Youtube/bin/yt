@@ -221,7 +221,7 @@ sub get_proc_with_ppid {
         $_->{cmndline} =~ /$cmd_str/
     } @{$t->table};
 
-    @children > 1 and war D_QUIET "More than one proc matches", 'ppid', $ppid, 'str', $cmd_str;
+    @children > 1 and D "More than one proc matches", 'ppid', $ppid, 'str', $cmd_str;
 
     return @children ? (shift @children)->pid : undef;
 }

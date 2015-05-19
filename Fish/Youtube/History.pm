@@ -9,7 +9,7 @@ use Moose;
 use Fish::Youtube::Utility;
 use Fish::Youtube::Utility 'error';
 use Fish::Youtube::Iter;
-use Fish::Anon 'o';
+use Fish::Class 'o';
 
 use DBI;
 
@@ -53,7 +53,7 @@ has _last_movie => (
 has _sql => (
     is  => 'rw',
     # XX
-    isa => 'Fish::Anon',
+    isa => 'Fish::Class',
 );
 
 around BUILDARGS => sub {
